@@ -46,13 +46,17 @@ function buildFlowJson(greeting) {
 }
 
 async function getOrCreateFlow(greeting) {
+  const WABA_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+  if (!WABA_ID) {
+    throw new Error('WHATSAPP_BUSINESS_ACCOUNT_ID env var is not set');
+  }
+
   const cacheKey = String(greeting.id);
   if (flowCache.has(cacheKey)) {
     console.log(`[flows] Using cached flow for greeting ${greeting.id}`);
     return flowCache.get(cacheKey);
   }
 
-  const WABA_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
   const authHeader = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
   console.log(`[flows] Creating flow for greeting ${greeting.id}`);
