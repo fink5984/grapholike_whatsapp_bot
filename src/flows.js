@@ -89,7 +89,7 @@ async function getOrCreateFlow(greeting) {
 
   // 3. Publish flow
   await axios.post(
-    `https://graph.facebook.com/v22.0/${flowId}?publish=true`,
+    `https://graph.facebook.com/v22.0/${flowId}/publish`,
     {},
     { headers: authHeader }
   );
