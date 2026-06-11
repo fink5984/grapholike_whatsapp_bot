@@ -49,6 +49,42 @@ async function handleMessage(message, contact, phoneNumberId) {
     return;
   }
 
+  // כפתור quick_reply מקרוסלה (type=button)
+  if (type === 'button') {
+    const payload = message.button?.payload || '';
+    console.log(`[handler] button payload=${payload}`);
+    if (payload.startsWith('choose_greeting_')) {
+      console.log(`[handler] greeting selected via button: ${payload}`);
+      await sendTyping(phoneNumberId, phone);
+      const greetingId = payload.replace('choose_greeting_', '');
+      console.log(`[handler] fetching greeting id=${greetingId}`);
+      const greeting = await getGreetingById(greetingId);
+      console.log(`[handler] greeting found=${!!greeting} fields=${greeting?.content?.length}`);
+
+      if (!greeting || !greeting.content || greeting.content.length === 0) {
+        await sendText(phoneNumberId, phone, 'שגיאה בטעינת פרטי הברכה. נסה שוב.');
+        return;
+      }
+
+      setSession(phone, {
+        greetingId: parseInt(greetingId),
+        fields: greeting.content,
+        currentFieldIndex: 0,
+        collected: { phone },
+        phoneNumberId,
+      });
+
+      const firstField = greeting.content[0];
+      await sendText(
+        phoneNumberId,
+        phone,
+        `בחרת ברכה! נמלא יחד את הפרטים.\n\nשלח "ביטול" בכל שלב לחזרה לתפריט.\n\n` +
+        `(1/${greeting.content.length}) ${firstField.name}:`
+      );
+    }
+    return;
+  }
+
   // תגובה אינטראקטיבית
   if (type === 'interactive') {
     const interactiveType = message.interactive?.type;

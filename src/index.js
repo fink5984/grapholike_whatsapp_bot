@@ -59,6 +59,8 @@ app.post('/webhook', (req, res) => {
       const iType = message.interactive?.type;
       const reply = message.interactive?.[iType];
       console.log(`[IN] interactive type=${iType} id=${reply?.id} title=${reply?.title}`);
+    } else if (message.type === 'button') {
+      console.log(`[IN] button payload="${message.button?.payload}" text="${message.button?.text}"`);
     }
 
     handleMessage(message, contact, phoneNumberId).catch((err) => {
