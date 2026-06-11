@@ -41,13 +41,14 @@ app.post('/webhook', (req, res) => {
     const value = changes?.value;
     const messages = value?.messages;
     const contacts = value?.contacts;
+    const phoneNumberId = value?.metadata?.phone_number_id;
 
     if (!messages || messages.length === 0) return;
 
     const message = messages[0];
     const contact = contacts?.[0];
 
-    handleMessage(message, contact).catch((err) => {
+    handleMessage(message, contact, phoneNumberId).catch((err) => {
       console.error('Error handling message:', err.message);
       if (err.response) {
         console.error('API status:', err.response.status);

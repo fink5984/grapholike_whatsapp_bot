@@ -1,18 +1,21 @@
 const axios = require('axios');
 
-const WA_API_URL = `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 const AUTH_HEADER = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
-async function sendRequest(body) {
-  const res = await axios.post(WA_API_URL, body, { headers: AUTH_HEADER });
+function getApiUrl(phoneNumberId) {
+  return `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
+}
+
+async function sendRequest(phoneNumberId, body) {
+  const res = await axios.post(getApiUrl(phoneNumberId), body, { headers: AUTH_HEADER });
   return res.data;
 }
 
 /**
  * שלח הודעת טקסט פשוטה
  */
-function sendText(to, text) {
-  return sendRequest({
+function sendText(phoneNumberId, to, text) {
+  return sendRequest(phoneNumberId, {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
@@ -25,13 +28,13 @@ function sendText(to, text) {
  * שלח תפריט בחירת קטגוריה (Interactive List)
  * categories: [{ id, name }]
  */
-function sendCategoryList(to, name, categories) {
+function sendCategoryList(phoneNumberId, to, name, categories) {
   const rows = categories.slice(0, 10).map((cat) => ({
     id: `cat_${cat.id}`,
     title: String(cat.name || cat.id).slice(0, 24),
   }));
 
-  return sendRequest({
+  return sendRequest(phoneNumberId, {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
@@ -53,7 +56,7 @@ function sendCategoryList(to, name, categories) {
  * שלח קרוסלה של ברכות
  * greetings: [{ id, image, title }]
  */
-function sendGreetingCarousel(to, categoryTitle, greetings) {
+function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
   const cards = greetings.slice(0, 10).map((g, index) => ({
     card_index: index,
     type: 'button',
@@ -77,7 +80,7 @@ function sendGreetingCarousel(to, categoryTitle, greetings) {
     },
   }));
 
-  return sendRequest({
+  return sendRequest(phoneNumberId, {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,

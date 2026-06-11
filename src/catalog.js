@@ -7,68 +7,31 @@ const headers = { 'X-ECARD-API-KEY': API_KEY };
 
 /**
  * שליפת כל הקטגוריות מהקטלוג
- * מחזיר: [{ id, name }]
+ * התשובה: [{name, greetings:[{id, image, content}]}]
+ * מחזיר: [{ id, name }]  (id = אינדקס במערך)
  */
 async function getCategories() {
   const { data } = await axios.get(`${BASE_URL}/catalog`, { headers });
-  console.log('Catalog response keys:', Object.keys(data));
-  console.log('Catalog raw (first 500 chars):', JSON.stringify(data).slice(0, 500));
-
-  // תמיכה בפורמטים שונים של תשובת ה-API
-  if (data.categories && Array.isArray(data.categories)) {
-    return data.categories.map((c) => ({ id: c.id, name: c.name || c.title }));
-  }
-
-  if (Array.isArray(data)) {
-    // מערך ישיר של קטגוריות
-    if (data[0] && (data[0].term_id || data[0].slug !== undefined)) {
-      return data.map((c) => ({ id: c.term_id || c.id, name: c.name }));
-    }
-    // מערך של פריטים - מחלץ קטגוריות ייחודיות
-    const catMap = new Map();
-    data.forEach((item) => {
-      const id = item.category_id || item.cat_id;
-      const name = item.category_name || item.cat_name || item.category;
-      if (id && name && !catMap.has(String(id))) catMap.set(String(id), name);
-    });
-    return Array.from(catMap.entries()).map(([id, name]) => ({ id, name }));
-  }
-
-  if (data.data && Array.isArray(data.data)) {
-    return data.data.map((c) => ({ id: c.id, name: c.name || c.title }));
-  }
-
-  throw new Error('פורמט תגובת הקטלוג לא מזוהה');
+  const arr = Array.isArray(data) ? data : Object.values(data);
+  return arr.map((item, index) => ({
+    id: String(index),
+    name: item.name || `קטגוריה ${index + 1}`,
+  }));
 }
 
 /**
- * שליפת ברכות לפי קטגוריה
+ * שליפת ברכות לפי אינדקס קטגוריה
  * מחזיר: [{ id, image, title }]
  */
 async function getGreetingsByCategory(categoryId) {
-  const { data } = await axios.get(`${BASE_URL}/catalog`, {
-    headers,
-    params: { category_id: categoryId },
-  });
-  console.log('Greetings response keys:', Object.keys(data));
-  console.log('Greetings raw (first 500 chars):', JSON.stringify(data).slice(0, 500));
-
-  let greetings = [];
-
-  if (data.greetings && Array.isArray(data.greetings)) {
-    greetings = data.greetings;
-  } else if (data.items && Array.isArray(data.items)) {
-    greetings = data.items;
-  } else if (data.data && Array.isArray(data.data)) {
-    greetings = data.data;
-  } else if (Array.isArray(data)) {
-    greetings = data;
-  }
-
-  return greetings.map((g) => ({
+  const { data } = await axios.get(`${BASE_URL}/catalog`, { headers });
+  const arr = Array.isArray(data) ? data : Object.values(data);
+  const category = arr[parseInt(categoryId, 10)];
+  if (!category) return [];
+  return (category.greetings || []).map((g) => ({
     id: g.id,
-    image: g.image || g.image_url || g.thumbnail || g.featured_image || '',
-    title: g.title || g.name || '',
+    image: g.image || '',
+    title: category.name || '',
   }));
 }
 
