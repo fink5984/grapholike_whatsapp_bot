@@ -35,4 +35,20 @@ async function getGreetingsByCategory(categoryId) {
   }));
 }
 
-module.exports = { getCategories, getGreetingsByCategory };
+/**
+ * שליפת ברכה בודדת לפי ID (כולל שדות התוכן שלה)
+ * מחזיר: { id, image, content: [{name, param}] } או null
+ */
+async function getGreetingById(greetingId) {
+  const { data } = await axios.get(`${BASE_URL}/catalog`, { headers });
+  const arr = Array.isArray(data) ? data : Object.values(data);
+  for (const category of arr) {
+    const greeting = (category.greetings || []).find(
+      (g) => String(g.id) === String(greetingId)
+    );
+    if (greeting) return greeting;
+  }
+  return null;
+}
+
+module.exports = { getCategories, getGreetingsByCategory, getGreetingById };
