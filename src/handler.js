@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { getCategories, getGreetingsByCategory, getGreetingById } = require('./catalog');
-const { sendText, sendCategoryList, sendGreetingCarousel } = require('./whatsapp');
+const { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
 
 /**
@@ -12,6 +12,11 @@ async function handleMessage(message, contact, phoneNumberId) {
   const name = contact?.profile?.name || 'לקוח';
   const type = message.type;
 
+  console.log(`[handler] phone=${phone} type=${type} phoneNumberId=${phoneNumberId}`);
+
+  // וי כחול — סימון קריאה
+  await markAsRead(phoneNumberId, message.id);
+
   // ביטול סשן אם המשתמש מבקש לחזור לתפריט
   if (type === 'text') {
     const textBody = (message.text?.body || '').trim();
@@ -22,14 +27,19 @@ async function handleMessage(message, contact, phoneNumberId) {
 
   // אם יש סשן פעיל — המשתמש במצב מילוי שדות
   const session = getSession(phone);
+  console.log(`[handler] session=${session ? 'ACTIVE field=' + session.currentFieldIndex : 'none'}`);
+
   if (session && type === 'text') {
     const text = (message.text?.body || '').trim();
+    console.log(`[handler] collecting field answer: "${text}"`);
+    await sendTyping(phoneNumberId, phone);
     await handleSessionInput(phone, phoneNumberId, session, text);
     return;
   }
 
   // הודעת טקסט — פתיחת תפריט קטגוריות
   if (type === 'text') {
+    console.log('[handler] new text message → showing categories');
     const categories = await getCategories();
     if (categories.length === 0) {
       await sendText(phoneNumberId, phone, 'מצטערים, לא נמצאו קטגוריות כרגע. נסה שוב מאוחר יותר.');
@@ -53,8 +63,11 @@ async function handleMessage(message, contact, phoneNumberId) {
       selectedTitle = message.interactive.button_reply?.title || '';
     }
 
+    console.log(`[handler] interactive: type=${interactiveType} selectedId=${selectedId}`);
+
     // בחירת קטגוריה → מציג קרוסלה של ברכות
     if (selectedId.startsWith('cat_')) {
+      console.log(`[handler] category selected: ${selectedId}`);
       const categoryId = selectedId.replace('cat_', '');
       const greetings = await getGreetingsByCategory(categoryId);
       if (greetings.length === 0) {
@@ -67,8 +80,12 @@ async function handleMessage(message, contact, phoneNumberId) {
 
     // בחירת ברכה → פתיחת סשן מילוי שדות
     if (selectedId.startsWith('choose_greeting_')) {
+      console.log(`[handler] greeting selected: ${selectedId}`);
+      await sendTyping(phoneNumberId, phone);
       const greetingId = selectedId.replace('choose_greeting_', '');
+      console.log(`[handler] fetching greeting id=${greetingId}`);
       const greeting = await getGreetingById(greetingId);
+      console.log(`[handler] greeting found=${!!greeting} fields=${greeting?.content?.length}`);
 
       if (!greeting || !greeting.content || greeting.content.length === 0) {
         await sendText(phoneNumberId, phone, 'שגיאה בטעינת פרטי הברכה. נסה שוב.');
@@ -121,7 +138,9 @@ async function handleSessionInput(phone, phoneNumberId, session, text) {
   }
 
   // כל השדות מולאו — שלח ל-API
+  console.log(`[handler] all fields collected, calling create API. greetingId=${greetingId}`);
   deleteSession(phone);
+  await sendTyping(phoneNumberId, phone);
   await sendText(phoneNumberId, phone, 'מעבד את הברכה... ⏳');
 
   try {

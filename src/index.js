@@ -51,6 +51,16 @@ app.post('/webhook', (req, res) => {
     const message = messages[0];
     const contact = contacts?.[0];
 
+    // לוג של כל הודעה נכנסת
+    console.log(`[IN] from=${message.from} type=${message.type} id=${message.id}`);
+    if (message.type === 'text') {
+      console.log(`[IN] text="${message.text?.body}"`);
+    } else if (message.type === 'interactive') {
+      const iType = message.interactive?.type;
+      const reply = message.interactive?.[iType];
+      console.log(`[IN] interactive type=${iType} id=${reply?.id} title=${reply?.title}`);
+    }
+
     handleMessage(message, contact, phoneNumberId).catch((err) => {
       console.error('Error handling message:', err.message);
       if (err.response) {

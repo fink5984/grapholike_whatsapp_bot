@@ -12,6 +12,42 @@ async function sendRequest(phoneNumberId, body) {
 }
 
 /**
+ * סמן הודעה כנקראה (וי כחול)
+ */
+async function markAsRead(phoneNumberId, messageId) {
+  try {
+    await axios.post(
+      getApiUrl(phoneNumberId),
+      { messaging_product: 'whatsapp', status: 'read', message_id: messageId },
+      { headers: AUTH_HEADER }
+    );
+  } catch (e) {
+    console.warn('markAsRead failed:', e.message);
+  }
+}
+
+/**
+ * הצג אינדיקטור הקלדה
+ */
+async function sendTyping(phoneNumberId, to) {
+  try {
+    await axios.post(
+      getApiUrl(phoneNumberId),
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'reaction',
+        reaction: { message_id: 'typing', emoji: '' },
+      },
+      { headers: AUTH_HEADER }
+    );
+  } catch (_) {
+    // typing indicator לא תמיד נתמך — מתעלמים משגיאה
+  }
+}
+
+/**
  * שלח הודעת טקסט פשוטה
  */
 function sendText(phoneNumberId, to, text) {
@@ -93,4 +129,4 @@ function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
   });
 }
 
-module.exports = { sendText, sendCategoryList, sendGreetingCarousel };
+module.exports = { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping };
