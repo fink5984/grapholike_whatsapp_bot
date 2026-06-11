@@ -49,6 +49,10 @@ app.post('/webhook', (req, res) => {
 
     handleMessage(message, contact).catch((err) => {
       console.error('Error handling message:', err.message);
+      if (err.response) {
+        console.error('API status:', err.response.status);
+        console.error('API response:', JSON.stringify(err.response.data));
+      }
     });
   } catch (err) {
     console.error('Error parsing webhook:', err.message);

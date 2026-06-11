@@ -11,6 +11,8 @@ const headers = { 'X-ECARD-API-KEY': API_KEY };
  */
 async function getCategories() {
   const { data } = await axios.get(`${BASE_URL}/catalog`, { headers });
+  console.log('Catalog response keys:', Object.keys(data));
+  console.log('Catalog raw (first 500 chars):', JSON.stringify(data).slice(0, 500));
 
   // תמיכה בפורמטים שונים של תשובת ה-API
   if (data.categories && Array.isArray(data.categories)) {
@@ -48,6 +50,8 @@ async function getGreetingsByCategory(categoryId) {
     headers,
     params: { category_id: categoryId },
   });
+  console.log('Greetings response keys:', Object.keys(data));
+  console.log('Greetings raw (first 500 chars):', JSON.stringify(data).slice(0, 500));
 
   let greetings = [];
 
