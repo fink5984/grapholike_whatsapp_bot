@@ -43,6 +43,9 @@ app.post('/webhook', (req, res) => {
     const contacts = value?.contacts;
     const phoneNumberId = value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
+    // Meta שולחת phone_number_id=123456123 בהודעות בדיקה מה-dashboard — מתעלמים מהן
+    if (!phoneNumberId || phoneNumberId === '123456123') return;
+
     if (!messages || messages.length === 0) return;
 
     const message = messages[0];
