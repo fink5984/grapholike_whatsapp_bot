@@ -1,7 +1,8 @@
 const axios = require('axios');
 const { getCategories, getGreetingsByCategory, getGreetingById } = require('./catalog');
-const { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping } = require('./whatsapp');
+const { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
+const { getOrCreateFlow } = require('./flows');
 
 /**
  * עיבוד הודעה נכנסת מ-WhatsApp
@@ -66,21 +67,26 @@ async function handleMessage(message, contact, phoneNumberId) {
         return;
       }
 
-      setSession(phone, {
-        greetingId: parseInt(greetingId),
-        fields: greeting.content,
-        currentFieldIndex: 0,
-        collected: { phone },
-        phoneNumberId,
-      });
-
-      const firstField = greeting.content[0];
-      await sendText(
-        phoneNumberId,
-        phone,
-        `בחרת ברכה! נמלא יחד את הפרטים.\n\nשלח "ביטול" בכל שלב לחזרה לתפריט.\n\n` +
-        `(1/${greeting.content.length}) ${firstField.name}:`
-      );
+      try {
+        const flowId = await getOrCreateFlow(greeting);
+        await sendFlowMessage(phoneNumberId, phone, flowId, `מלא את הפרטים לברכה:`);
+      } catch (err) {
+        console.error('[handler] Flow creation failed, falling back to Q&A:', err.message, err.response?.data);
+        setSession(phone, {
+          greetingId: parseInt(greetingId),
+          fields: greeting.content,
+          currentFieldIndex: 0,
+          collected: { phone },
+          phoneNumberId,
+        });
+        const firstField = greeting.content[0];
+        await sendText(
+          phoneNumberId,
+          phone,
+          `בחרת ברכה! נמלא יחד את הפרטים.\n\nשלח "ביטול" בכל שלב לחזרה לתפריט.\n\n` +
+          `(1/${greeting.content.length}) ${firstField.name}:`
+        );
+      }
     }
     return;
   }
@@ -90,6 +96,14 @@ async function handleMessage(message, contact, phoneNumberId) {
     const interactiveType = message.interactive?.type;
     let selectedId = '';
     let selectedTitle = '';
+
+    if (interactiveType === 'nfm_reply') {
+      const responseJson = JSON.parse(message.interactive.nfm_reply.response_json);
+      const { greeting_id, ...fields } = responseJson;
+      console.log(`[handler] nfm_reply greetingId=${greeting_id} fields=${JSON.stringify(fields)}`);
+      await createEcard(phoneNumberId, phone, parseInt(greeting_id), { ...fields, phone });
+      return;
+    }
 
     if (interactiveType === 'list_reply') {
       selectedId = message.interactive.list_reply?.id || '';
@@ -114,7 +128,7 @@ async function handleMessage(message, contact, phoneNumberId) {
       return;
     }
 
-    // בחירת ברכה → פתיחת סשן מילוי שדות
+    // בחירת ברכה → פתיחת Flow
     if (selectedId.startsWith('choose_greeting_')) {
       console.log(`[handler] greeting selected: ${selectedId}`);
       await sendTyping(phoneNumberId, phone);
@@ -128,40 +142,42 @@ async function handleMessage(message, contact, phoneNumberId) {
         return;
       }
 
-      // יצירת סשן חדש
-      setSession(phone, {
-        greetingId: parseInt(greetingId),
-        fields: greeting.content,
-        currentFieldIndex: 0,
-        collected: { phone },
-        phoneNumberId,
-      });
-
-      const firstField = greeting.content[0];
-      await sendText(
-        phoneNumberId,
-        phone,
-        `בחרת ברכה! נמלא יחד את הפרטים.\n\nשלח "ביטול" בכל שלב לחזרה לתפריט.\n\n` +
-        `(1/${greeting.content.length}) ${firstField.name}:`
-      );
+      try {
+        const flowId = await getOrCreateFlow(greeting);
+        await sendFlowMessage(phoneNumberId, phone, flowId, `מלא את הפרטים לברכה:`);
+      } catch (err) {
+        console.error('[handler] Flow creation failed, falling back to Q&A:', err.message, err.response?.data);
+        setSession(phone, {
+          greetingId: parseInt(greetingId),
+          fields: greeting.content,
+          currentFieldIndex: 0,
+          collected: { phone },
+          phoneNumberId,
+        });
+        const firstField = greeting.content[0];
+        await sendText(
+          phoneNumberId,
+          phone,
+          `בחרת ברכה! נמלא יחד את הפרטים.\n\nשלח "ביטול" בכל שלב לחזרה לתפריט.\n\n` +
+          `(1/${greeting.content.length}) ${firstField.name}:`
+        );
+      }
       return;
     }
   }
 }
 
 /**
- * טיפול בקלט משתמש בזמן מילוי שדות
+ * טיפול בקלט משתמש בזמן מילוי שדות (Q&A fallback)
  */
 async function handleSessionInput(phone, phoneNumberId, session, text) {
   const { fields, currentFieldIndex, collected, greetingId } = session;
 
-  // שמירת הערך הנוכחי
   const currentField = fields[currentFieldIndex];
   collected[currentField.param] = text;
 
   const nextIndex = currentFieldIndex + 1;
 
-  // יש עוד שדות — שאל את הבא
   if (nextIndex < fields.length) {
     setSession(phone, { ...session, currentFieldIndex: nextIndex, collected });
     const nextField = fields[nextIndex];
@@ -173,16 +189,22 @@ async function handleSessionInput(phone, phoneNumberId, session, text) {
     return;
   }
 
-  // כל השדות מולאו — שלח ל-API
   console.log(`[handler] all fields collected, calling create API. greetingId=${greetingId}`);
   deleteSession(phone);
+  await createEcard(phoneNumberId, phone, greetingId, collected);
+}
+
+/**
+ * יצירת ברכה דרך ה-API ושליחת הקישור למשתמש
+ */
+async function createEcard(phoneNumberId, phone, greetingId, fields) {
   await sendTyping(phoneNumberId, phone);
   await sendText(phoneNumberId, phone, 'מעבד את הברכה... ⏳');
 
   try {
     const body = {
       post_id: greetingId,
-      ...collected,
+      ...fields,
       generate_pdf: true,
     };
 

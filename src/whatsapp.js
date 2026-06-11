@@ -129,4 +129,34 @@ function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
   });
 }
 
-module.exports = { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping };
+/**
+ * שלח הודעת WhatsApp Flow
+ * flowId — מזהה ה-Flow שנוצר דרך ה-API
+ * bodyText — הטקסט שיוצג מעל הכפתור
+ */
+function sendFlowMessage(phoneNumberId, to, flowId, bodyText) {
+  return sendRequest(phoneNumberId, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'flow',
+      header: { type: 'text', text: 'ברכות גרפיות' },
+      body: { text: bodyText },
+      footer: { text: 'GraphoLike' },
+      action: {
+        name: 'flow',
+        parameters: {
+          flow_id: flowId,
+          flow_cta: 'מלא פרטים',
+          mode: 'published',
+          flow_action: 'navigate',
+          flow_action_payload: { screen: 'GREETING_FORM' },
+        },
+      },
+    },
+  });
+}
+
+module.exports = { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping, sendFlowMessage };
