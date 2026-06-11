@@ -41,7 +41,7 @@ app.post('/webhook', (req, res) => {
     const value = changes?.value;
     const messages = value?.messages;
     const contacts = value?.contacts;
-    const phoneNumberId = value?.metadata?.phone_number_id;
+    const phoneNumberId = value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!messages || messages.length === 0) return;
 
