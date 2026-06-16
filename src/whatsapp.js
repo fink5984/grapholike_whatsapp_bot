@@ -3,7 +3,7 @@ const axios = require('axios');
 const AUTH_HEADER = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
 function getApiUrl(phoneNumberId) {
-  return `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
+  return `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
 }
 
 async function sendRequest(phoneNumberId, body) {
@@ -103,7 +103,7 @@ function sendCategoryList(phoneNumberId, to, name, categories) {
 function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
   const cards = greetings.slice(0, 10).map((g, index) => ({
     card_index: index,
-    type: 'button',
+    type: 'cta_url',
     header: {
       type: 'image',
       image: { link: encodeURI(g.image || g.image_url || g.thumbnail || '') },
