@@ -97,27 +97,16 @@ function sendCategoryList(phoneNumberId, to, name, categories) {
 }
 
 /**
- * ממיר URL של תמונת PNG ל-JPEG דרך proxy (WhatsApp לא מציג PNG בקרוסלה)
- */
-function toCarouselImageUrl(imageUrl) {
-  if (!imageUrl) return '';
-  if (/\.png(\?|$)/i.test(imageUrl)) {
-    return `https://images.weserv.nl/?url=${encodeURIComponent(imageUrl)}&output=jpg&q=85&maxage=7d`;
-  }
-  return encodeURI(imageUrl);
-}
-
-/**
  * שלח קרוסלה של ברכות
  * greetings: [{ id, image, title }]
  */
 function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
   const cards = greetings.slice(0, 10).map((g, index) => ({
     card_index: index,
-    type: 'button',
+    type: 'cta_url',
     header: {
       type: 'image',
-      image: { link: toCarouselImageUrl(g.image || g.image_url || g.thumbnail || '') },
+      image: { link: encodeURI(g.image || g.image_url || g.thumbnail || '') },
     },
     body: {
       text: (g.title || g.name || `ברכה ${index + 1}`).slice(0, 160),
