@@ -103,7 +103,6 @@ function sendCategoryList(phoneNumberId, to, name, categories) {
 function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
   const cards = greetings.slice(0, 10).map((g, index) => ({
     card_index: index,
-    type: 'cta_url',
     header: {
       type: 'image',
       image: { link: encodeURI(g.image || g.image_url || g.thumbnail || '') },
