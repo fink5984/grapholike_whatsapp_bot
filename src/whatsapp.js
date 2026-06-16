@@ -7,8 +7,16 @@ function getApiUrl(phoneNumberId) {
 }
 
 async function sendRequest(phoneNumberId, body) {
-  const res = await axios.post(getApiUrl(phoneNumberId), body, { headers: AUTH_HEADER });
-  return res.data;
+  try {
+    const res = await axios.post(getApiUrl(phoneNumberId), body, { headers: AUTH_HEADER });
+    return res.data;
+  } catch (err) {
+    const status = err.response?.status;
+    const data = err.response?.data;
+    console.error(`[whatsapp] API error status=${status} type=${body.interactive?.type || body.type}`);
+    console.error('[whatsapp] API error body:', JSON.stringify(data));
+    throw err;
+  }
 }
 
 /**
@@ -159,4 +167,32 @@ function sendFlowMessage(phoneNumberId, to, flowId, bodyText) {
   });
 }
 
-module.exports = { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping, sendFlowMessage };
+/**
+ * fallback: רשימת ברכות כ-Interactive List (כאשר carousel נכשל)
+ * greetings: [{ id, image, title }]
+ */
+function sendGreetingList(phoneNumberId, to, categoryTitle, greetings) {
+  const rows = greetings.slice(0, 10).map((g, index) => ({
+    id: `choose_greeting_${g.id}`,
+    title: (g.title || g.name || `ברכה ${index + 1}`).slice(0, 24),
+  }));
+
+  return sendRequest(phoneNumberId, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      header: { type: 'text', text: categoryTitle },
+      body: { text: 'בחר את העיצוב המועדף:' },
+      footer: { text: 'GraphoLike' },
+      action: {
+        button: 'בחר עיצוב',
+        sections: [{ title: 'עיצובים', rows }],
+      },
+    },
+  });
+}
+
+module.exports = { sendText, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage };

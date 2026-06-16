@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { getCategories, getGreetingsByCategory, getGreetingById } = require('./catalog');
-const { sendText, sendCategoryList, sendGreetingCarousel, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
+const { sendText, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
 const { getOrCreateFlow } = require('./flows');
 
@@ -124,7 +124,13 @@ async function handleMessage(message, contact, phoneNumberId) {
         await sendText(phoneNumberId, phone, `לא נמצאו ברכות לקטגוריה "${selectedTitle}".`);
         return;
       }
-      await sendGreetingCarousel(phoneNumberId, phone, selectedTitle, greetings);
+      await sendTyping(phoneNumberId, phone);
+      try {
+        await sendGreetingCarousel(phoneNumberId, phone, selectedTitle, greetings);
+      } catch (carouselErr) {
+        console.warn('[handler] Carousel failed, falling back to list:', carouselErr.message);
+        await sendGreetingList(phoneNumberId, phone, selectedTitle, greetings);
+      }
       return;
     }
 
