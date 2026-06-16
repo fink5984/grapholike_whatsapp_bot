@@ -134,21 +134,14 @@ async function handleMessage(message, contact, phoneNumberId) {
         return;
       }
       await sendTyping(phoneNumberId, phone);
-      console.log(`[handler] sending carousel/list for category ${categoryId}`);
-      const hasPng = greetings.some(g => /\.png(\?|$)/i.test(g.image || ''));
-      if (hasPng) {
-        console.log('[handler] PNG images detected → using list directly');
+      console.log(`[handler] sending carousel for category ${categoryId}`);
+      try {
+        await sendGreetingCarousel(phoneNumberId, phone, selectedTitle, greetings);
+        console.log(`[handler] carousel sent OK`);
+      } catch (carouselErr) {
+        console.warn('[handler] Carousel failed, falling back to list:', carouselErr.message);
         await sendGreetingList(phoneNumberId, phone, selectedTitle, greetings);
-        console.log('[handler] list sent OK');
-      } else {
-        try {
-          await sendGreetingCarousel(phoneNumberId, phone, selectedTitle, greetings);
-          console.log(`[handler] carousel sent OK`);
-        } catch (carouselErr) {
-          console.warn('[handler] Carousel failed, falling back to list:', carouselErr.message);
-          await sendGreetingList(phoneNumberId, phone, selectedTitle, greetings);
-          console.log(`[handler] list sent OK`);
-        }
+        console.log(`[handler] list sent OK`);
       }
       return;
     }
