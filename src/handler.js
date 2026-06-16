@@ -119,17 +119,29 @@ async function handleMessage(message, contact, phoneNumberId) {
     if (selectedId.startsWith('cat_')) {
       console.log(`[handler] category selected: ${selectedId}`);
       const categoryId = selectedId.replace('cat_', '');
-      const greetings = await getGreetingsByCategory(categoryId);
+      console.log(`[handler] fetching greetings for category ${categoryId}`);
+      let greetings;
+      try {
+        greetings = await getGreetingsByCategory(categoryId);
+      } catch (catErr) {
+        console.error('[handler] getGreetingsByCategory error:', catErr.message);
+        await sendText(phoneNumberId, phone, 'שגיאה בטעינת ברכות. נסה שוב.');
+        return;
+      }
+      console.log(`[handler] greetings count=${greetings.length}`);
       if (greetings.length === 0) {
         await sendText(phoneNumberId, phone, `לא נמצאו ברכות לקטגוריה "${selectedTitle}".`);
         return;
       }
       await sendTyping(phoneNumberId, phone);
+      console.log(`[handler] sending carousel/list for category ${categoryId}`);
       try {
         await sendGreetingCarousel(phoneNumberId, phone, selectedTitle, greetings);
+        console.log(`[handler] carousel sent OK`);
       } catch (carouselErr) {
         console.warn('[handler] Carousel failed, falling back to list:', carouselErr.message);
         await sendGreetingList(phoneNumberId, phone, selectedTitle, greetings);
+        console.log(`[handler] list sent OK`);
       }
       return;
     }
