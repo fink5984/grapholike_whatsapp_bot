@@ -1,8 +1,14 @@
 const axios = require('axios');
 const { getCategories, getGreetingsByCategory, getGreetingById } = require('./catalog');
-const { sendText, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
+const { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
 const { getOrCreateFlow } = require('./flows');
+
+function isImageUrl(url) {
+  if (!url) return false;
+  const clean = String(url).split('?')[0].toLowerCase();
+  return ['.jpg', '.jpeg', '.png', '.webp', '.gif'].some((ext) => clean.endsWith(ext));
+}
 
 /**
  * עיבוד הודעה נכנסת מ-WhatsApp
@@ -240,7 +246,16 @@ async function createEcard(phoneNumberId, phone, greetingId, fields) {
       data.url || data.pdf_url || data.file_url || data.download_url || data.link;
 
     if (fileUrl) {
-      await sendText(phoneNumberId, phone, `✅ הברכה שלך מוכנה!\n\n${fileUrl}`);
+      if (isImageUrl(fileUrl)) {
+        try {
+          await sendImage(phoneNumberId, phone, fileUrl, '✅ הברכה שלך מוכנה!');
+        } catch (imgErr) {
+          console.warn('sendImage failed, sending link instead:', imgErr.message);
+          await sendText(phoneNumberId, phone, `✅ הברכה שלך מוכנה!\n\n${fileUrl}`);
+        }
+      } else {
+        await sendText(phoneNumberId, phone, `✅ הברכה שלך מוכנה!\n\n${fileUrl}`);
+      }
     } else {
       await sendText(
         phoneNumberId,

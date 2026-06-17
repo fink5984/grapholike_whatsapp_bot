@@ -69,6 +69,23 @@ function sendText(phoneNumberId, to, text) {
 }
 
 /**
+ * שלח תמונה באמצעות URL
+ */
+function sendImage(phoneNumberId, to, imageUrl, caption = '') {
+  const link = encodeURI(String(imageUrl || '').trim());
+  return sendRequest(phoneNumberId, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'image',
+    image: {
+      link,
+      ...(caption ? { caption } : {}),
+    },
+  });
+}
+
+/**
  * שלח תפריט בחירת קטגוריה (Interactive List)
  * categories: [{ id, name }]
  */
@@ -209,4 +226,4 @@ function sendGreetingList(phoneNumberId, to, categoryTitle, greetings) {
   });
 }
 
-module.exports = { sendText, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage };
+module.exports = { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage };
