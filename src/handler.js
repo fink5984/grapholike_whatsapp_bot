@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { getCategories, getGreetingsByCategory, getGreetingById } = require('./catalog');
-const { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
+const { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, sendTyping, sendFlowMessage } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
 const { getOrCreateFlow } = require('./flows');
 
@@ -8,6 +8,31 @@ function isImageUrl(url) {
   if (!url) return false;
   const clean = String(url).split('?')[0].toLowerCase();
   return ['.jpg', '.jpeg', '.png', '.webp', '.gif'].some((ext) => clean.endsWith(ext));
+}
+
+function normalizeFlowResponseFields(responseJson) {
+  const obj = responseJson && typeof responseJson === 'object' ? responseJson : {};
+  const greetingId = obj.greeting_id;
+
+  // Some flow replies wrap inputs under the Form name (e.g. greeting_form)
+  // or under generic containers like data/screen level objects.
+  let fields = { ...obj };
+  delete fields.greeting_id;
+
+  const wrappers = ['greeting_form', 'data', 'form'];
+  for (const key of wrappers) {
+    if (fields[key] && typeof fields[key] === 'object' && !Array.isArray(fields[key])) {
+      fields = { ...fields, ...fields[key] };
+      delete fields[key];
+    }
+  }
+
+  // Drop non-form metadata that may arrive from WhatsApp Flow
+  delete fields.flow_token;
+  delete fields.screen;
+  delete fields.version;
+
+  return { greetingId, fields };
 }
 
 /**
@@ -21,8 +46,8 @@ async function handleMessage(message, contact, phoneNumberId) {
 
   console.log(`[handler] phone=${phone} type=${type} phoneNumberId=${phoneNumberId}`);
 
-  // וי כחול — סימון קריאה
-  await markAsRead(phoneNumberId, message.id);
+  // מציג typing מיד עם קבלת ההודעה במקום סימון קריאה אוטומטי
+  await sendTyping(phoneNumberId, phone);
 
   // ביטול סשן אם המשתמש מבקש לחזור לתפריט
   if (type === 'text') {
@@ -105,9 +130,9 @@ async function handleMessage(message, contact, phoneNumberId) {
 
     if (interactiveType === 'nfm_reply') {
       const responseJson = JSON.parse(message.interactive.nfm_reply.response_json);
-      const { greeting_id, ...fields } = responseJson;
-      console.log(`[handler] nfm_reply greetingId=${greeting_id} fields=${JSON.stringify(fields)}`);
-      await createEcard(phoneNumberId, phone, parseInt(greeting_id), { ...fields, phone });
+      const { greetingId, fields } = normalizeFlowResponseFields(responseJson);
+      console.log(`[handler] nfm_reply greetingId=${greetingId} fields=${JSON.stringify(fields)}`);
+      await createEcard(phoneNumberId, phone, parseInt(greetingId, 10), { ...fields, phone });
       return;
     }
 
