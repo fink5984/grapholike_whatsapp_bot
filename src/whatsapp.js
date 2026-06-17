@@ -1,9 +1,42 @@
 const axios = require('axios');
+const FormData = require('form-data');
 
 const AUTH_HEADER = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
 function getApiUrl(phoneNumberId) {
   return `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
+}
+
+function getMediaUrl(phoneNumberId) {
+  return `https://graph.facebook.com/v23.0/${phoneNumberId}/media`;
+}
+
+function extensionFromContentType(contentType) {
+  const ct = String(contentType || '').toLowerCase();
+  if (ct.includes('png')) return 'png';
+  if (ct.includes('webp')) return 'webp';
+  if (ct.includes('gif')) return 'gif';
+  return 'jpg';
+}
+
+async function uploadImageFromUrl(phoneNumberId, imageUrl) {
+  const link = encodeURI(String(imageUrl || '').trim());
+  const imageRes = await axios.get(link, { responseType: 'arraybuffer', timeout: 20000 });
+  const contentType = (imageRes.headers['content-type'] || 'image/jpeg').split(';')[0];
+  const ext = extensionFromContentType(contentType);
+
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('file', Buffer.from(imageRes.data), {
+    filename: `generated-greeting.${ext}`,
+    contentType,
+  });
+
+  const uploadRes = await axios.post(getMediaUrl(phoneNumberId), form, {
+    headers: { ...AUTH_HEADER, ...form.getHeaders() },
+  });
+
+  return uploadRes.data?.id;
 }
 
 async function sendRequest(phoneNumberId, body) {
@@ -83,6 +116,24 @@ function sendImage(phoneNumberId, to, imageUrl, caption = '') {
       link,
       ...(caption ? { caption } : {}),
     },
+  }).catch(async (err) => {
+    const code = err.response?.data?.error?.code;
+    if (code !== 131053) throw err;
+
+    // If Meta cannot fetch image URL directly, upload bytes first and send by media id.
+    const mediaId = await uploadImageFromUrl(phoneNumberId, imageUrl);
+    if (!mediaId) throw err;
+
+    return sendRequest(phoneNumberId, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'image',
+      image: {
+        id: mediaId,
+        ...(caption ? { caption } : {}),
+      },
+    });
   });
 }
 

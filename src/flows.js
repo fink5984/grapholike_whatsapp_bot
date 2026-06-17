@@ -3,6 +3,12 @@ const FormData = require('form-data');
 
 const flowCache = new Map(); // greetingId -> flowId
 
+function placeholderForField(field) {
+  const title = String(field?.name || field?.param || '').trim();
+  if (!title) return 'הזן ערך';
+  return `הזן ${title}`;
+}
+
 async function findExistingFlowId(authHeader, wabaId, greetingId) {
   const prefix = `greeting_${greetingId}`;
 
@@ -43,12 +49,39 @@ async function createFlowWithUniqueName(authHeader, wabaId, greetingId) {
   throw new Error('Failed creating unique flow name');
 }
 
+async function uploadAndPublishFlow(authHeader, flowId, greeting) {
+  const flowJson = buildFlowJson(greeting);
+  const form = new FormData();
+  form.append('name', 'flow.json');
+  form.append('asset_type', 'FLOW_JSON');
+  form.append('file', Buffer.from(JSON.stringify(flowJson)), {
+    filename: 'flow.json',
+    contentType: 'application/json',
+  });
+
+  const uploadRes = await axios.post(
+    `https://graph.facebook.com/v22.0/${flowId}/assets`,
+    form,
+    { headers: { ...authHeader, ...form.getHeaders() } }
+  );
+  console.log(`[flows] Uploaded JSON:`, JSON.stringify(uploadRes.data));
+
+  await axios.post(
+    `https://graph.facebook.com/v22.0/${flowId}/publish`,
+    {},
+    { headers: authHeader }
+  );
+  console.log(`[flows] Published flow ${flowId}`);
+}
+
 function buildFlowJson(greeting) {
   const formChildren = (greeting.content || []).map((field) => ({
     type: 'TextInput',
     label: field.name,
     name: field.param,
     'input-type': field.param === 'phone' ? 'phone' : 'text',
+    placeholder: placeholderForField(field),
+    'helper-text': `פרמטר: ${field.param}`,
     required: true,
   }));
 
@@ -103,6 +136,7 @@ async function getOrCreateFlow(greeting) {
     const existingFlowId = await findExistingFlowId(authHeader, WABA_ID, greeting.id);
     if (existingFlowId) {
       console.log(`[flows] Reusing existing flow ${existingFlowId} for greeting ${greeting.id}`);
+      await uploadAndPublishFlow(authHeader, existingFlowId, greeting);
       flowCache.set(cacheKey, existingFlowId);
       return existingFlowId;
     }
@@ -116,30 +150,8 @@ async function getOrCreateFlow(greeting) {
   const flowId = await createFlowWithUniqueName(authHeader, WABA_ID, greeting.id);
   console.log(`[flows] Created flow id=${flowId}`);
 
-  // 2. Upload flow JSON
-  const flowJson = buildFlowJson(greeting);
-  const form = new FormData();
-  form.append('name', 'flow.json');
-  form.append('asset_type', 'FLOW_JSON');
-  form.append('file', Buffer.from(JSON.stringify(flowJson)), {
-    filename: 'flow.json',
-    contentType: 'application/json',
-  });
-
-  const uploadRes = await axios.post(
-    `https://graph.facebook.com/v22.0/${flowId}/assets`,
-    form,
-    { headers: { ...authHeader, ...form.getHeaders() } }
-  );
-  console.log(`[flows] Uploaded JSON:`, JSON.stringify(uploadRes.data));
-
-  // 3. Publish flow
-  await axios.post(
-    `https://graph.facebook.com/v22.0/${flowId}/publish`,
-    {},
-    { headers: authHeader }
-  );
-  console.log(`[flows] Published flow ${flowId}`);
+  // 2. Upload flow JSON + publish
+  await uploadAndPublishFlow(authHeader, flowId, greeting);
 
   flowCache.set(cacheKey, flowId);
   return flowId;

@@ -12,25 +12,58 @@ function isImageUrl(url) {
 
 function normalizeFlowResponseFields(responseJson) {
   const obj = responseJson && typeof responseJson === 'object' ? responseJson : {};
-  const greetingId = obj.greeting_id;
+  const collected = {};
 
-  // Some flow replies wrap inputs under the Form name (e.g. greeting_form)
-  // or under generic containers like data/screen level objects.
-  let fields = { ...obj };
-  delete fields.greeting_id;
-
-  const wrappers = ['greeting_form', 'data', 'form'];
-  for (const key of wrappers) {
-    if (fields[key] && typeof fields[key] === 'object' && !Array.isArray(fields[key])) {
-      fields = { ...fields, ...fields[key] };
-      delete fields[key];
+  const maybeParseJson = (value) => {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return value;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
     }
-  }
+  };
 
-  // Drop non-form metadata that may arrive from WhatsApp Flow
-  delete fields.flow_token;
-  delete fields.screen;
-  delete fields.version;
+  const walk = (node) => {
+    const parsedNode = maybeParseJson(node);
+    if (!parsedNode || typeof parsedNode !== 'object') return;
+
+    if (Array.isArray(parsedNode)) {
+      for (const item of parsedNode) walk(item);
+      return;
+    }
+
+    if (
+      typeof parsedNode.name === 'string' &&
+      (Object.prototype.hasOwnProperty.call(parsedNode, 'value') ||
+        Object.prototype.hasOwnProperty.call(parsedNode, 'text'))
+    ) {
+      collected[parsedNode.name] = parsedNode.value ?? parsedNode.text;
+    }
+
+    for (const [key, rawVal] of Object.entries(parsedNode)) {
+      const val = maybeParseJson(rawVal);
+      if (val && typeof val === 'object') {
+        walk(val);
+      } else if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+        collected[key] = val;
+      }
+    }
+  };
+
+  walk(obj);
+
+  const greetingId =
+    obj.greeting_id ||
+    obj.greetingId ||
+    collected.greeting_id ||
+    collected.greetingId;
+
+  const ignored = new Set(['greeting_id', 'greetingId', 'flow_token', 'screen', 'version']);
+  const fields = Object.fromEntries(
+    Object.entries(collected).filter(([key, value]) => !ignored.has(key) && value !== '' && value != null)
+  );
 
   return { greetingId, fields };
 }
@@ -130,8 +163,21 @@ async function handleMessage(message, contact, phoneNumberId) {
     if (interactiveType === 'nfm_reply') {
       const responseJson = JSON.parse(message.interactive.nfm_reply.response_json);
       const { greetingId, fields } = normalizeFlowResponseFields(responseJson);
-      console.log(`[handler] nfm_reply greetingId=${greetingId} fields=${JSON.stringify(fields)}`);
-      await createEcard(phoneNumberId, phone, parseInt(greetingId, 10), { ...fields, phone });
+      const parsedGreetingId = parseInt(greetingId, 10);
+
+      let sanitizedFields = fields;
+      if (Number.isFinite(parsedGreetingId)) {
+        const greeting = await getGreetingById(parsedGreetingId);
+        if (greeting?.content?.length) {
+          const allowedParams = new Set(greeting.content.map((f) => String(f.param)));
+          sanitizedFields = Object.fromEntries(
+            Object.entries(fields).filter(([key, value]) => allowedParams.has(key) && value !== '' && value != null)
+          );
+        }
+      }
+
+      console.log(`[handler] nfm_reply greetingId=${greetingId} fields=${JSON.stringify(sanitizedFields)}`);
+      await createEcard(phoneNumberId, phone, parsedGreetingId, { ...sanitizedFields, phone });
       return;
     }
 
