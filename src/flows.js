@@ -36,8 +36,11 @@ function helperTextForField(field) {
   return 'לדוגמה: מלא כאן את הפרט המבוקש';
 }
 
+// Bump this version when flow JSON structure changes to force fresh flows.
+const FLOW_NAME_VERSION = 'v2';
+
 async function findExistingFlowId(authHeader, wabaId, greetingId) {
-  const prefix = `greeting_${greetingId}`;
+  const prefix = `greeting_${greetingId}_${FLOW_NAME_VERSION}`;
 
   const { data } = await axios.get(
     `https://graph.facebook.com/v22.0/${wabaId}/flows`,
@@ -53,7 +56,7 @@ async function findExistingFlowId(authHeader, wabaId, greetingId) {
 }
 
 async function createFlowWithUniqueName(authHeader, wabaId, greetingId) {
-  const baseName = `greeting_${greetingId}`;
+  const baseName = `greeting_${greetingId}_${FLOW_NAME_VERSION}`;
   let flowName = `${baseName}_${Date.now()}`;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -129,7 +132,7 @@ function buildFlowJson(greeting) {
   });
 
   return {
-    version: '6.0',
+    version: '3.1',
     screens: [
       {
         id: 'GREETING_FORM',

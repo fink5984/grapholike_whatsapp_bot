@@ -21,7 +21,17 @@ function extensionFromContentType(contentType) {
 
 async function uploadImageFromUrl(phoneNumberId, imageUrl) {
   const link = encodeURI(String(imageUrl || '').trim());
-  const imageRes = await axios.get(link, { responseType: 'arraybuffer', timeout: 20000 });
+
+  // Wait briefly — the generated image file may not be fully written yet
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  let imageRes;
+  try {
+    imageRes = await axios.get(link, { responseType: 'arraybuffer', timeout: 30000 });
+  } catch (downloadErr) {
+    console.error('[whatsapp] Image download failed:', downloadErr.message, link);
+    throw downloadErr;
+  }
   const contentType = (imageRes.headers['content-type'] || 'image/jpeg').split(';')[0];
   const ext = extensionFromContentType(contentType);
 
@@ -34,6 +44,9 @@ async function uploadImageFromUrl(phoneNumberId, imageUrl) {
 
   const uploadRes = await axios.post(getMediaUrl(phoneNumberId), form, {
     headers: { ...AUTH_HEADER, ...form.getHeaders() },
+  }).catch((uploadErr) => {
+    console.error('[whatsapp] Media upload 400 details:', JSON.stringify(uploadErr.response?.data));
+    throw uploadErr;
   });
 
   return uploadRes.data?.id;
