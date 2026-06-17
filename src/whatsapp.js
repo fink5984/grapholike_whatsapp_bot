@@ -106,13 +106,14 @@ function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
     .map((g, index) => {
       const imageLink = String(g.image || g.image_url || g.thumbnail || '').trim();
       if (!/^https?:\/\//i.test(imageLink)) return null;
+      const encodedImageLink = encodeURI(imageLink);
 
       return {
         card_index: index,
-        type: 'button',
+        type: 'cta_url',
         header: {
           type: 'image',
-          image: { link: imageLink },
+          image: { link: encodedImageLink },
         },
         body: {
           text: (g.title || g.name || `ברכה ${index + 1}`).slice(0, 160),

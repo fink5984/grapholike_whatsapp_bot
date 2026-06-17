@@ -40,11 +40,26 @@ app.post('/webhook', (req, res) => {
     const changes = entry?.changes?.[0];
     const value = changes?.value;
     const messages = value?.messages;
+    const statuses = value?.statuses;
     const contacts = value?.contacts;
     const phoneNumberId = value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     // Meta שולחת phone_number_id=123456123 בהודעות בדיקה מה-dashboard — מתעלמים מהן
     if (!phoneNumberId || phoneNumberId === '123456123') return;
+
+    if (statuses && statuses.length > 0) {
+      for (const s of statuses) {
+        const statusErrors = (s.errors || [])
+          .map((e) => `${e.code || 'unknown'}:${e.title || e.message || 'unknown error'}`)
+          .join(' | ');
+        console.log(
+          `[STATUS] id=${s.id} status=${s.status} to=${s.recipient_id || 'unknown'} pricing=${s.pricing?.category || 'n/a'}`
+        );
+        if (statusErrors) {
+          console.warn(`[STATUS] errors=${statusErrors}`);
+        }
+      }
+    }
 
     if (!messages || messages.length === 0) return;
 

@@ -3,6 +3,46 @@ const FormData = require('form-data');
 
 const flowCache = new Map(); // greetingId -> flowId
 
+async function findExistingFlowId(authHeader, wabaId, greetingId) {
+  const prefix = `greeting_${greetingId}`;
+
+  const { data } = await axios.get(
+    `https://graph.facebook.com/v22.0/${wabaId}/flows`,
+    {
+      headers: authHeader,
+      params: { fields: 'id,name,status', limit: 200 },
+    }
+  );
+
+  const flows = Array.isArray(data?.data) ? data.data : [];
+  const existing = flows.find((f) => typeof f.name === 'string' && f.name.startsWith(prefix));
+  return existing?.id || null;
+}
+
+async function createFlowWithUniqueName(authHeader, wabaId, greetingId) {
+  const baseName = `greeting_${greetingId}`;
+  let flowName = `${baseName}_${Date.now()}`;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const createRes = await axios.post(
+        `https://graph.facebook.com/v22.0/${wabaId}/flows`,
+        { name: flowName, categories: ['OTHER'] },
+        { headers: authHeader }
+      );
+      return createRes.data.id;
+    } catch (err) {
+      const subcode = err.response?.data?.error?.error_subcode;
+      if (subcode !== 4016019 || attempt === 2) {
+        throw err;
+      }
+      flowName = `${baseName}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    }
+  }
+
+  throw new Error('Failed creating unique flow name');
+}
+
 function buildFlowJson(greeting) {
   const formChildren = (greeting.content || []).map((field) => ({
     type: 'TextInput',
@@ -59,15 +99,21 @@ async function getOrCreateFlow(greeting) {
 
   const authHeader = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
+  try {
+    const existingFlowId = await findExistingFlowId(authHeader, WABA_ID, greeting.id);
+    if (existingFlowId) {
+      console.log(`[flows] Reusing existing flow ${existingFlowId} for greeting ${greeting.id}`);
+      flowCache.set(cacheKey, existingFlowId);
+      return existingFlowId;
+    }
+  } catch (listErr) {
+    console.warn('[flows] Could not list existing flows, creating a new one:', listErr.message);
+  }
+
   console.log(`[flows] Creating flow for greeting ${greeting.id}`);
 
   // 1. Create flow
-  const createRes = await axios.post(
-    `https://graph.facebook.com/v22.0/${WABA_ID}/flows`,
-    { name: `greeting_${greeting.id}`, categories: ['OTHER'] },
-    { headers: authHeader }
-  );
-  const flowId = createRes.data.id;
+  const flowId = await createFlowWithUniqueName(authHeader, WABA_ID, greeting.id);
   console.log(`[flows] Created flow id=${flowId}`);
 
   // 2. Upload flow JSON
