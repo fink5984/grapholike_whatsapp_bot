@@ -106,35 +106,38 @@ function sendText(phoneNumberId, to, text) {
  * שלח תמונה באמצעות URL
  */
 function sendImage(phoneNumberId, to, imageUrl, caption = '') {
-  const link = encodeURI(String(imageUrl || '').trim());
-  return sendRequest(phoneNumberId, {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to,
-    type: 'image',
-    image: {
-      link,
-      ...(caption ? { caption } : {}),
-    },
-  }).catch(async (err) => {
-    const code = err.response?.data?.error?.code;
-    if (code !== 131053) throw err;
+  return uploadImageFromUrl(phoneNumberId, imageUrl)
+    .then((mediaId) => {
+      if (!mediaId) {
+        throw new Error('Media upload returned empty id');
+      }
 
-    // If Meta cannot fetch image URL directly, upload bytes first and send by media id.
-    const mediaId = await uploadImageFromUrl(phoneNumberId, imageUrl);
-    if (!mediaId) throw err;
-
-    return sendRequest(phoneNumberId, {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to,
-      type: 'image',
-      image: {
-        id: mediaId,
-        ...(caption ? { caption } : {}),
-      },
+      return sendRequest(phoneNumberId, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'image',
+        image: {
+          id: mediaId,
+          ...(caption ? { caption } : {}),
+        },
+      });
+    })
+    .catch(async (uploadErr) => {
+      // Fallback to link send only if upload failed.
+      console.warn('sendImage upload-first failed, trying direct link:', uploadErr.message);
+      const link = encodeURI(String(imageUrl || '').trim());
+      return sendRequest(phoneNumberId, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'image',
+        image: {
+          link,
+          ...(caption ? { caption } : {}),
+        },
+      });
     });
-  });
 }
 
 /**
