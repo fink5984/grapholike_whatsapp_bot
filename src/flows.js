@@ -3,10 +3,10 @@ const FormData = require('form-data');
 
 const flowCache = new Map(); // greetingId -> flowId
 
-function placeholderForField(field) {
-  const title = String(field?.name || field?.param || '').trim();
-  if (!title) return 'הזן ערך';
-  return `הזן ${title}`;
+function helperTextForField(field) {
+  const param = String(field?.param || '').trim();
+  if (!param) return 'מלא את הערך המבוקש בשדה זה';
+  return `מה למלא: ${param}`;
 }
 
 async function findExistingFlowId(authHeader, wabaId, greetingId) {
@@ -66,6 +66,14 @@ async function uploadAndPublishFlow(authHeader, flowId, greeting) {
   );
   console.log(`[flows] Uploaded JSON:`, JSON.stringify(uploadRes.data));
 
+  const validationErrors = Array.isArray(uploadRes.data?.validation_errors)
+    ? uploadRes.data.validation_errors
+    : [];
+  if (validationErrors.length > 0) {
+    const firstError = validationErrors[0];
+    throw new Error(`Flow JSON validation failed: ${firstError?.message || 'unknown validation error'}`);
+  }
+
   await axios.post(
     `https://graph.facebook.com/v22.0/${flowId}/publish`,
     {},
@@ -77,11 +85,10 @@ async function uploadAndPublishFlow(authHeader, flowId, greeting) {
 function buildFlowJson(greeting) {
   const formChildren = (greeting.content || []).map((field) => ({
     type: 'TextInput',
-    label: field.name,
+    label: `${field.name} (${field.param})`,
     name: field.param,
     'input-type': field.param === 'phone' ? 'phone' : 'text',
-    placeholder: placeholderForField(field),
-    'helper-text': `פרמטר: ${field.param}`,
+    'helper-text': helperTextForField(field),
     required: true,
   }));
 
@@ -132,16 +139,18 @@ async function getOrCreateFlow(greeting) {
 
   const authHeader = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
+  let existingFlowId = null;
   try {
-    const existingFlowId = await findExistingFlowId(authHeader, WABA_ID, greeting.id);
-    if (existingFlowId) {
-      console.log(`[flows] Reusing existing flow ${existingFlowId} for greeting ${greeting.id}`);
-      await uploadAndPublishFlow(authHeader, existingFlowId, greeting);
-      flowCache.set(cacheKey, existingFlowId);
-      return existingFlowId;
-    }
+    existingFlowId = await findExistingFlowId(authHeader, WABA_ID, greeting.id);
   } catch (listErr) {
     console.warn('[flows] Could not list existing flows, creating a new one:', listErr.message);
+  }
+
+  if (existingFlowId) {
+    console.log(`[flows] Reusing existing flow ${existingFlowId} for greeting ${greeting.id}`);
+    await uploadAndPublishFlow(authHeader, existingFlowId, greeting);
+    flowCache.set(cacheKey, existingFlowId);
+    return existingFlowId;
   }
 
   console.log(`[flows] Creating flow for greeting ${greeting.id}`);
