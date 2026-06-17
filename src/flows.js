@@ -122,12 +122,19 @@ function buildFlowJson(greeting) {
     required: true,
   }));
 
+  // Pass each form input value back to the bot via ${form.<name>} data-binding.
+  // Without this the completion payload contains only greeting_id and all fields arrive empty.
+  const payload = { greeting_id: String(greeting.id) };
+  for (const field of greeting.content || []) {
+    payload[field.param] = `\${form.${field.param}}`;
+  }
+
   formChildren.push({
     type: 'Footer',
     label: 'שלח ברכה',
     'on-click-action': {
       name: 'complete',
-      payload: { greeting_id: String(greeting.id) },
+      payload,
     },
   });
 

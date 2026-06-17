@@ -19,7 +19,10 @@ function extensionFromContentType(contentType) {
   return 'jpg';
 }
 
-async function uploadImageFromUrl(phoneNumberId, imageUrl) {
+// WhatsApp rejects inline images larger than 5 MB (both upload and link send).
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+async function downloadImage(imageUrl) {
   const link = encodeURI(String(imageUrl || '').trim());
 
   // Wait briefly — the generated image file may not be fully written yet
@@ -33,11 +36,15 @@ async function uploadImageFromUrl(phoneNumberId, imageUrl) {
     throw downloadErr;
   }
   const contentType = (imageRes.headers['content-type'] || 'image/jpeg').split(';')[0];
+  return { buffer: Buffer.from(imageRes.data), contentType, link };
+}
+
+async function uploadImageBuffer(phoneNumberId, buffer, contentType) {
   const ext = extensionFromContentType(contentType);
 
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
-  form.append('file', Buffer.from(imageRes.data), {
+  form.append('file', buffer, {
     filename: `generated-greeting.${ext}`,
     contentType,
   });
@@ -116,41 +123,50 @@ function sendText(phoneNumberId, to, text) {
 }
 
 /**
- * שלח תמונה באמצעות URL
+ * שלח תמונה באמצעות URL.
+ * תמונה עד 5MB נשלחת inline; תמונה גדולה יותר (או כשל בהעלאה) נשלחת כקישור לחיץ.
  */
-function sendImage(phoneNumberId, to, imageUrl, caption = '') {
-  return uploadImageFromUrl(phoneNumberId, imageUrl)
-    .then((mediaId) => {
-      if (!mediaId) {
-        throw new Error('Media upload returned empty id');
-      }
+async function sendImage(phoneNumberId, to, imageUrl, caption = '') {
+  const link = encodeURI(String(imageUrl || '').trim());
 
-      return sendRequest(phoneNumberId, {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'image',
-        image: {
-          id: mediaId,
-          ...(caption ? { caption } : {}),
-        },
-      });
-    })
-    .catch(async (uploadErr) => {
-      // Fallback to link send only if upload failed.
-      console.warn('sendImage upload-first failed, trying direct link:', uploadErr.message);
-      const link = encodeURI(String(imageUrl || '').trim());
-      return sendRequest(phoneNumberId, {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'image',
-        image: {
-          link,
-          ...(caption ? { caption } : {}),
-        },
-      });
+  // Fallback used whenever inline image isn't possible — a clickable text link always delivers.
+  const sendAsLink = () =>
+    sendText(phoneNumberId, to, `${caption ? caption + '\n\n' : ''}${link}`);
+
+  let file;
+  try {
+    file = await downloadImage(imageUrl);
+  } catch (downloadErr) {
+    console.warn('[whatsapp] download failed, sending link instead:', downloadErr.message);
+    return sendAsLink();
+  }
+
+  if (file.buffer.length > IMAGE_MAX_BYTES) {
+    console.log(
+      `[whatsapp] image ${file.buffer.length} bytes exceeds ${IMAGE_MAX_BYTES} limit — sending link instead`
+    );
+    return sendAsLink();
+  }
+
+  try {
+    const mediaId = await uploadImageBuffer(phoneNumberId, file.buffer, file.contentType);
+    if (!mediaId) {
+      throw new Error('Media upload returned empty id');
+    }
+    return await sendRequest(phoneNumberId, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'image',
+      image: {
+        id: mediaId,
+        ...(caption ? { caption } : {}),
+      },
     });
+  } catch (uploadErr) {
+    console.warn('[whatsapp] inline image send failed, sending link instead:', uploadErr.message);
+    return sendAsLink();
+  }
 }
 
 /**
