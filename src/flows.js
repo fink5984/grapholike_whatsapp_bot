@@ -37,7 +37,7 @@ function helperTextForField(field) {
 }
 
 // Bump this version when flow JSON structure changes to force fresh flows.
-const FLOW_NAME_VERSION = 'v2';
+const FLOW_NAME_VERSION = 'v3';
 
 async function findExistingFlowId(authHeader, wabaId, greetingId) {
   const prefix = `greeting_${greetingId}_${FLOW_NAME_VERSION}`;
@@ -132,7 +132,7 @@ function buildFlowJson(greeting) {
   });
 
   return {
-    version: '3.1',
+    version: '6.0',
     screens: [
       {
         id: 'GREETING_FORM',
