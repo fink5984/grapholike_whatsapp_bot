@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { getCategories, getGreetingsByCategory, getGreetingById } = require('./catalog');
-const { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, sendTyping, sendFlowMessage } = require('./whatsapp');
+const { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
 const { getOrCreateFlow } = require('./flows');
 
@@ -46,8 +46,9 @@ async function handleMessage(message, contact, phoneNumberId) {
 
   console.log(`[handler] phone=${phone} type=${type} phoneNumberId=${phoneNumberId}`);
 
-  // מציג typing מיד עם קבלת ההודעה במקום סימון קריאה אוטומטי
-  await sendTyping(phoneNumberId, phone);
+  // אישור קריאה + אינדיקטור typing על ההודעה שנכנסה
+  await markAsRead(phoneNumberId, message.id);
+  await sendTyping(phoneNumberId, message.id);
 
   // ביטול סשן אם המשתמש מבקש לחזור לתפריט
   if (type === 'text') {
@@ -64,7 +65,6 @@ async function handleMessage(message, contact, phoneNumberId) {
   if (session && type === 'text') {
     const text = (message.text?.body || '').trim();
     console.log(`[handler] collecting field answer: "${text}"`);
-    await sendTyping(phoneNumberId, phone);
     await handleSessionInput(phone, phoneNumberId, session, text);
     return;
   }
@@ -87,7 +87,6 @@ async function handleMessage(message, contact, phoneNumberId) {
     console.log(`[handler] button payload=${payload}`);
     if (payload.startsWith('choose_greeting_')) {
       console.log(`[handler] greeting selected via button: ${payload}`);
-      await sendTyping(phoneNumberId, phone);
       const greetingId = payload.replace('choose_greeting_', '');
       console.log(`[handler] fetching greeting id=${greetingId}`);
       const greeting = await getGreetingById(greetingId);
@@ -164,7 +163,6 @@ async function handleMessage(message, contact, phoneNumberId) {
         await sendText(phoneNumberId, phone, `לא נמצאו ברכות לקטגוריה "${selectedTitle}".`);
         return;
       }
-      await sendTyping(phoneNumberId, phone);
       console.log(`[handler] sending carousel for category ${categoryId}`);
       try {
         await sendGreetingCarousel(phoneNumberId, phone, selectedTitle, greetings);
@@ -180,7 +178,6 @@ async function handleMessage(message, contact, phoneNumberId) {
     // בחירת ברכה → פתיחת Flow
     if (selectedId.startsWith('choose_greeting_')) {
       console.log(`[handler] greeting selected: ${selectedId}`);
-      await sendTyping(phoneNumberId, phone);
       const greetingId = selectedId.replace('choose_greeting_', '');
       console.log(`[handler] fetching greeting id=${greetingId}`);
       const greeting = await getGreetingById(greetingId);
@@ -247,7 +244,6 @@ async function handleSessionInput(phone, phoneNumberId, session, text) {
  * יצירת ברכה דרך ה-API ושליחת הקישור למשתמש
  */
 async function createEcard(phoneNumberId, phone, greetingId, fields) {
-  await sendTyping(phoneNumberId, phone);
   await sendText(phoneNumberId, phone, 'מעבד את הברכה... ⏳');
 
   try {
@@ -268,7 +264,7 @@ async function createEcard(phoneNumberId, phone, greetingId, fields) {
     console.log('Create response:', JSON.stringify(data));
 
     const fileUrl =
-      data.url || data.pdf_url || data.file_url || data.download_url || data.link;
+      data.image_url || data.url || data.pdf_url || data.file_url || data.download_url || data.link || data.data?.image_url || data.data?.url || data.result?.image_url || data.result?.url;
 
     if (fileUrl) {
       if (isImageUrl(fileUrl)) {

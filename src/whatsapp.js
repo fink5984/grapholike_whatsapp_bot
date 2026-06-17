@@ -37,21 +37,22 @@ async function markAsRead(phoneNumberId, messageId) {
 /**
  * הצג אינדיקטור הקלדה
  */
-async function sendTyping(phoneNumberId, to) {
+async function sendTyping(phoneNumberId, messageId) {
+  if (!messageId) return;
   try {
     await axios.post(
       getApiUrl(phoneNumberId),
       {
         messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'reaction',
-        reaction: { message_id: 'typing', emoji: '' },
+        status: 'read',
+        message_id: messageId,
+        typing_indicator: { type: 'text' },
       },
       { headers: AUTH_HEADER }
     );
-  } catch (_) {
-    // typing indicator לא תמיד נתמך — מתעלמים משגיאה
+  } catch (e) {
+    // בחלק מהחשבונות typing_indicator עדיין לא נתמך
+    console.warn('sendTyping failed:', e.response?.data?.error?.message || e.message);
   }
 }
 
