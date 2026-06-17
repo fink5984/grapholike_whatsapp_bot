@@ -106,7 +106,7 @@ function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
     type: 'cta_url',
     header: {
       type: 'image',
-      image: { link: encodeURI(g.image || g.image_url || g.thumbnail || '') },
+      image: { link: g.image || g.image_url || g.thumbnail || '' },
     },
     body: {
       text: (g.title || g.name || `ברכה ${index + 1}`).slice(0, 160),
@@ -156,6 +156,7 @@ function sendFlowMessage(phoneNumberId, to, flowId, bodyText) {
       action: {
         name: 'flow',
         parameters: {
+          flow_message_version: '3',
           flow_id: flowId,
           flow_cta: 'מלא פרטים',
           mode: 'published',
