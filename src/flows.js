@@ -4,9 +4,36 @@ const FormData = require('form-data');
 const flowCache = new Map(); // greetingId -> flowId
 
 function helperTextForField(field) {
-  const param = String(field?.param || '').trim();
-  if (!param) return 'מלא את הערך המבוקש בשדה זה';
-  return `מה למלא: ${param}`;
+  const param = String(field?.param || '').trim().toLowerCase();
+  const name = String(field?.name || '').trim();
+
+  const examples = {
+    day: 'לדוגמה: ראשון',
+    parsha: 'לדוגמה: בראשית',
+    date: 'לדוגמה: י"ב',
+    month: 'לדוגמה: תשרי',
+    year: 'לדוגמה: תשפ"ו',
+    city: 'לדוגמה: ירושלים',
+    address: 'לדוגמה: רחוב הרצל 10',
+    name: 'לדוגמה: דוד',
+    father: 'לדוגמה: משה',
+    mother: 'לדוגמה: שרה',
+    phone: 'לדוגמה: 0521234567',
+  };
+
+  if (examples[param]) return examples[param];
+
+  const normalizedName = name.toLowerCase();
+  if (normalizedName.includes('יום')) return 'לדוגמה: ראשון';
+  if (normalizedName.includes('פרשה')) return 'לדוגמה: בראשית';
+  if (normalizedName.includes('תאריך')) return 'לדוגמה: י"ב';
+  if (normalizedName.includes('חודש')) return 'לדוגמה: תשרי';
+  if (normalizedName.includes('שנה')) return 'לדוגמה: תשפ"ו';
+  if (normalizedName.includes('עיר')) return 'לדוגמה: ירושלים';
+  if (normalizedName.includes('כתובת')) return 'לדוגמה: רחוב הרצל 10';
+  if (normalizedName.includes('טלפון')) return 'לדוגמה: 0521234567';
+
+  return 'לדוגמה: מלא כאן את הפרט המבוקש';
 }
 
 async function findExistingFlowId(authHeader, wabaId, greetingId) {
@@ -85,7 +112,7 @@ async function uploadAndPublishFlow(authHeader, flowId, greeting) {
 function buildFlowJson(greeting) {
   const formChildren = (greeting.content || []).map((field) => ({
     type: 'TextInput',
-    label: `${field.name} (${field.param})`,
+    label: String(field.name || field.param || 'שדה'),
     name: field.param,
     'input-type': field.param === 'phone' ? 'phone' : 'text',
     'helper-text': helperTextForField(field),
