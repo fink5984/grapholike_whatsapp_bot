@@ -101,28 +101,40 @@ function sendCategoryList(phoneNumberId, to, name, categories) {
  * greetings: [{ id, image, title }]
  */
 function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
-  const cards = greetings.slice(0, 10).map((g, index) => ({
-    card_index: index,
-    type: 'cta_url',
-    header: {
-      type: 'image',
-      image: { link: g.image || g.image_url || g.thumbnail || '' },
-    },
-    body: {
-      text: (g.title || g.name || `ברכה ${index + 1}`).slice(0, 160),
-    },
-    action: {
-      buttons: [
-        {
-          type: 'quick_reply',
-          quick_reply: {
-            id: `choose_greeting_${g.id}`,
-            title: 'בחר',
-          },
+  const cards = greetings
+    .slice(0, 10)
+    .map((g, index) => {
+      const imageLink = String(g.image || g.image_url || g.thumbnail || '').trim();
+      if (!/^https?:\/\//i.test(imageLink)) return null;
+
+      return {
+        card_index: index,
+        type: 'button',
+        header: {
+          type: 'image',
+          image: { link: imageLink },
         },
-      ],
-    },
-  }));
+        body: {
+          text: (g.title || g.name || `ברכה ${index + 1}`).slice(0, 160),
+        },
+        action: {
+          buttons: [
+            {
+              type: 'quick_reply',
+              quick_reply: {
+                id: `choose_greeting_${g.id}`,
+                title: 'בחר',
+              },
+            },
+          ],
+        },
+      };
+    })
+    .filter(Boolean);
+
+  if (cards.length === 0) {
+    throw new Error('No valid image cards for carousel');
+  }
 
   return sendRequest(phoneNumberId, {
     messaging_product: 'whatsapp',
