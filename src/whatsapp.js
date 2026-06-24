@@ -173,7 +173,7 @@ async function sendImage(phoneNumberId, to, imageUrl, caption = '') {
  * שלח תפריט בחירת קטגוריה (Interactive List)
  * categories: [{ id, name }]
  */
-function sendCategoryList(phoneNumberId, to, name, categories) {
+function sendCategoryList(phoneNumberId, to, bodyText, categories) {
   const rows = categories.slice(0, 10).map((cat) => ({
     id: `cat_${cat.id}`,
     title: String(cat.name || cat.id).slice(0, 24),
@@ -186,11 +186,11 @@ function sendCategoryList(phoneNumberId, to, name, categories) {
     type: 'interactive',
     interactive: {
       type: 'list',
-      header: { type: 'text', text: 'ברכות גרפיות' },
-      body: { text: `שלום ${name}!\nבחר את קטגוריית הברכה:` },
+      header: { type: 'text', text: 'סוג השמחה' },
+      body: { text: bodyText },
       footer: { text: 'GraphoLike' },
       action: {
-        button: 'בחר קטגוריה',
+        button: 'בחירת קטגוריה',
         sections: [{ title: 'קטגוריות', rows }],
       },
     },
@@ -254,9 +254,27 @@ function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
 /**
  * שלח הודעת WhatsApp Flow
  * flowId — מזהה ה-Flow שנוצר דרך ה-API
- * bodyText — הטקסט שיוצג מעל הכפתור
+ * opts:
+ *   bodyText   — הטקסט שיוצג מעל הכפתור
+ *   headerText — כותרת ההודעה
+ *   cta        — תווית הכפתור
+ *   screen     — מזהה המסך הראשון ב-Flow
+ *   data       — ערכי prefill למסך (למשל פתיחה מחדש לתיקון)
  */
-function sendFlowMessage(phoneNumberId, to, flowId, bodyText) {
+function sendFlowMessage(phoneNumberId, to, flowId, opts = {}) {
+  const {
+    bodyText = 'מלא את הפרטים',
+    headerText = 'ברכות גרפיות',
+    cta = 'מלא פרטים',
+    screen = 'GREETING_FORM',
+    data,
+  } = opts;
+
+  const flowActionPayload = { screen };
+  if (data && Object.keys(data).length > 0) {
+    flowActionPayload.data = data;
+  }
+
   return sendRequest(phoneNumberId, {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
@@ -264,7 +282,7 @@ function sendFlowMessage(phoneNumberId, to, flowId, bodyText) {
     type: 'interactive',
     interactive: {
       type: 'flow',
-      header: { type: 'text', text: 'ברכות גרפיות' },
+      header: { type: 'text', text: headerText },
       body: { text: bodyText },
       footer: { text: 'GraphoLike' },
       action: {
@@ -272,11 +290,34 @@ function sendFlowMessage(phoneNumberId, to, flowId, bodyText) {
         parameters: {
           flow_message_version: '3',
           flow_id: flowId,
-          flow_cta: 'מלא פרטים',
+          flow_cta: cta,
           mode: 'published',
           flow_action: 'navigate',
-          flow_action_payload: { screen: 'GREETING_FORM' },
+          flow_action_payload: flowActionPayload,
         },
+      },
+    },
+  });
+}
+
+/**
+ * שלח הודעה עם כפתורי reply (עד 3).
+ * buttons: [{ id, title }]
+ */
+function sendButtons(phoneNumberId, to, bodyText, buttons) {
+  return sendRequest(phoneNumberId, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: bodyText },
+      action: {
+        buttons: buttons.slice(0, 3).map((b) => ({
+          type: 'reply',
+          reply: { id: b.id, title: String(b.title).slice(0, 20) },
+        })),
       },
     },
   });
@@ -310,4 +351,4 @@ function sendGreetingList(phoneNumberId, to, categoryTitle, greetings) {
   });
 }
 
-module.exports = { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage };
+module.exports = { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage, sendButtons };

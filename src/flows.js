@@ -1,7 +1,7 @@
 const axios = require('axios');
 const FormData = require('form-data');
 
-const flowCache = new Map(); // greetingId -> flowId
+const flowCache = new Map(); // flow key -> flowId
 
 function helperTextForField(field) {
   const param = String(field?.param || '').trim().toLowerCase();
@@ -37,10 +37,12 @@ function helperTextForField(field) {
 }
 
 // Bump this version when flow JSON structure changes to force fresh flows.
-const FLOW_NAME_VERSION = 'v3';
+// v4: greeting form now declares screen `data` + init-value bindings so the
+//     correction step (13) can reopen the flow pre-filled with existing values.
+const FLOW_NAME_VERSION = 'v4';
 
-async function findExistingFlowId(authHeader, wabaId, greetingId) {
-  const prefix = `greeting_${greetingId}_${FLOW_NAME_VERSION}`;
+async function findExistingFlowId(authHeader, wabaId, keyPrefix) {
+  const prefix = `${keyPrefix}_${FLOW_NAME_VERSION}`;
 
   const { data } = await axios.get(
     `https://graph.facebook.com/v22.0/${wabaId}/flows`,
@@ -55,8 +57,8 @@ async function findExistingFlowId(authHeader, wabaId, greetingId) {
   return existing?.id || null;
 }
 
-async function createFlowWithUniqueName(authHeader, wabaId, greetingId) {
-  const baseName = `greeting_${greetingId}_${FLOW_NAME_VERSION}`;
+async function createFlowWithUniqueName(authHeader, wabaId, keyPrefix) {
+  const baseName = `${keyPrefix}_${FLOW_NAME_VERSION}`;
   let flowName = `${baseName}_${Date.now()}`;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -79,8 +81,7 @@ async function createFlowWithUniqueName(authHeader, wabaId, greetingId) {
   throw new Error('Failed creating unique flow name');
 }
 
-async function uploadAndPublishFlow(authHeader, flowId, greeting) {
-  const flowJson = buildFlowJson(greeting);
+async function uploadAndPublishFlow(authHeader, flowId, flowJson) {
   const form = new FormData();
   form.append('name', 'flow.json');
   form.append('asset_type', 'FLOW_JSON');
@@ -112,8 +113,16 @@ async function uploadAndPublishFlow(authHeader, flowId, greeting) {
   console.log(`[flows] Published flow ${flowId}`);
 }
 
-function buildFlowJson(greeting) {
-  const formChildren = (greeting.content || []).map((field) => ({
+/**
+ * Flow לאיסוף פרטי האירוע (שלב 7).
+ * השדות נטענים דינמית מתוך greeting.content.
+ * הערה: WhatsApp לא תומך ב-init-value על TextInput, ולכן אין prefill —
+ * תיקון (שלב 13) פותח מחדש טופס ריק והמשתמש מזין את הפרטים שוב.
+ */
+function buildGreetingFlowJson(greeting) {
+  const fields = greeting.content || [];
+
+  const formChildren = fields.map((field) => ({
     type: 'TextInput',
     label: String(field.name || field.param || 'שדה'),
     name: field.param,
@@ -123,9 +132,8 @@ function buildFlowJson(greeting) {
   }));
 
   // Pass each form input value back to the bot via ${form.<name>} data-binding.
-  // Without this the completion payload contains only greeting_id and all fields arrive empty.
   const payload = { greeting_id: String(greeting.id) };
-  for (const field of greeting.content || []) {
+  for (const field of fields) {
     payload[field.param] = `\${form.${field.param}}`;
   }
 
@@ -162,45 +170,111 @@ function buildFlowJson(greeting) {
   };
 }
 
-async function getOrCreateFlow(greeting) {
+/**
+ * Flow לאיסוף שם + מייל (שלב 1).
+ * נוסחת ה-complete מסומנת ב-form:'onboarding' כדי שה-handler יבדיל בינו
+ * לבין טופס פרטי האירוע.
+ */
+function buildOnboardingFlowJson() {
+  return {
+    version: '6.0',
+    screens: [
+      {
+        id: 'ONBOARDING_FORM',
+        title: 'פרטים אישיים',
+        terminal: true,
+        success: true,
+        data: {},
+        layout: {
+          type: 'SingleColumnLayout',
+          children: [
+            {
+              type: 'Form',
+              name: 'onboarding_form',
+              children: [
+                {
+                  type: 'TextInput',
+                  label: 'איך קוראים לכם?',
+                  name: 'name',
+                  'input-type': 'text',
+                  required: true,
+                },
+                {
+                  type: 'TextInput',
+                  label: 'כתובת מייל',
+                  name: 'email',
+                  'input-type': 'email',
+                  'helper-text': 'לשם נשלח את העיצוב באיכות גבוהה',
+                  required: true,
+                },
+                {
+                  type: 'Footer',
+                  label: 'המשך',
+                  'on-click-action': {
+                    name: 'complete',
+                    payload: {
+                      form: 'onboarding',
+                      name: '${form.name}',
+                      email: '${form.email}',
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * מאתר/יוצר/מפרסם Flow לפי מפתח לוגי (key) ומחזיר את ה-flowId.
+ * key לדוגמה: "greeting_123" או "onboarding".
+ */
+async function getOrCreateFlowByKey(key, flowJson) {
   const WABA_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
   if (!WABA_ID) {
     throw new Error('WHATSAPP_BUSINESS_ACCOUNT_ID env var is not set');
   }
 
-  const cacheKey = String(greeting.id);
-  if (flowCache.has(cacheKey)) {
-    console.log(`[flows] Using cached flow for greeting ${greeting.id}`);
-    return flowCache.get(cacheKey);
+  if (flowCache.has(key)) {
+    console.log(`[flows] Using cached flow for ${key}`);
+    return flowCache.get(key);
   }
 
   const authHeader = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
   let existingFlowId = null;
   try {
-    existingFlowId = await findExistingFlowId(authHeader, WABA_ID, greeting.id);
+    existingFlowId = await findExistingFlowId(authHeader, WABA_ID, key);
   } catch (listErr) {
     console.warn('[flows] Could not list existing flows, creating a new one:', listErr.message);
   }
 
   if (existingFlowId) {
-    console.log(`[flows] Reusing existing flow ${existingFlowId} for greeting ${greeting.id}`);
-    await uploadAndPublishFlow(authHeader, existingFlowId, greeting);
-    flowCache.set(cacheKey, existingFlowId);
+    console.log(`[flows] Reusing existing flow ${existingFlowId} for ${key}`);
+    await uploadAndPublishFlow(authHeader, existingFlowId, flowJson);
+    flowCache.set(key, existingFlowId);
     return existingFlowId;
   }
 
-  console.log(`[flows] Creating flow for greeting ${greeting.id}`);
-
-  // 1. Create flow
-  const flowId = await createFlowWithUniqueName(authHeader, WABA_ID, greeting.id);
+  console.log(`[flows] Creating flow for ${key}`);
+  const flowId = await createFlowWithUniqueName(authHeader, WABA_ID, key);
   console.log(`[flows] Created flow id=${flowId}`);
 
-  // 2. Upload flow JSON + publish
-  await uploadAndPublishFlow(authHeader, flowId, greeting);
+  await uploadAndPublishFlow(authHeader, flowId, flowJson);
 
-  flowCache.set(cacheKey, flowId);
+  flowCache.set(key, flowId);
   return flowId;
 }
 
-module.exports = { getOrCreateFlow };
+function getGreetingFlow(greeting) {
+  return getOrCreateFlowByKey(`greeting_${greeting.id}`, buildGreetingFlowJson(greeting));
+}
+
+function getOnboardingFlow() {
+  return getOrCreateFlowByKey('onboarding', buildOnboardingFlowJson());
+}
+
+module.exports = { getGreetingFlow, getOnboardingFlow };

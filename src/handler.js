@@ -1,8 +1,22 @@
 const axios = require('axios');
 const { getCategories, getGreetingsByCategory, getGreetingById } = require('./catalog');
-const { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage } = require('./whatsapp');
+const {
+  sendText,
+  sendImage,
+  sendCategoryList,
+  sendGreetingCarousel,
+  sendGreetingList,
+  sendButtons,
+  markAsRead,
+  sendTyping,
+  sendFlowMessage,
+} = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
-const { getOrCreateFlow } = require('./flows');
+const { getGreetingFlow, getOnboardingFlow } = require('./flows');
+const { getProfile, setProfile, getLastOrder, setLastOrder } = require('./profiles');
+const M = require('./messages');
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function isImageUrl(url) {
   if (!url) return false;
@@ -10,22 +24,21 @@ function isImageUrl(url) {
   return ['.jpg', '.jpeg', '.png', '.webp', '.gif'].some((ext) => clean.endsWith(ext));
 }
 
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
 function normalizeFlowResponseFields(responseJson) {
   const obj = responseJson && typeof responseJson === 'object' ? responseJson : {};
-
-  // Log raw payload to diagnose field extraction issues
   console.log('[handler] nfm_reply raw:', JSON.stringify(obj));
 
   const greetingId = obj.greeting_id || obj.greetingId;
 
-  const ignored = new Set(['greeting_id', 'greetingId', 'flow_token', 'screen', 'version']);
+  const ignored = new Set(['greeting_id', 'greetingId', 'form', 'flow_token', 'screen', 'version']);
   const fields = Object.fromEntries(
     Object.entries(obj).filter(
       ([key, value]) =>
-        !ignored.has(key) &&
-        value !== '' &&
-        value != null &&
-        typeof value !== 'object'
+        !ignored.has(key) && value !== '' && value != null && typeof value !== 'object'
     )
   );
 
@@ -38,12 +51,10 @@ function normalizeFlowResponseFields(responseJson) {
  */
 async function handleMessage(message, contact, phoneNumberId) {
   const phone = message.from;
-  const name = contact?.profile?.name || 'לקוח';
   const type = message.type;
 
   console.log(`[handler] phone=${phone} type=${type} phoneNumberId=${phoneNumberId}`);
 
-  // אישור קריאה + אינדיקטור typing על ההודעה שנכנסה
   await markAsRead(phoneNumberId, message.id);
   await sendTyping(phoneNumberId, message.id);
 
@@ -55,88 +66,37 @@ async function handleMessage(message, contact, phoneNumberId) {
     }
   }
 
-  // אם יש סשן פעיל — המשתמש במצב מילוי שדות
+  // ── סשן Q&A פעיל (fallback כאשר Flow אינו זמין) ──
   const session = getSession(phone);
-  console.log(`[handler] session=${session ? 'ACTIVE field=' + session.currentFieldIndex : 'none'}`);
-
+  console.log(`[handler] session=${session ? 'ACTIVE kind=' + (session.kind || 'greeting') : 'none'}`);
   if (session && type === 'text') {
     const text = (message.text?.body || '').trim();
-    console.log(`[handler] collecting field answer: "${text}"`);
     await handleSessionInput(phone, phoneNumberId, session, text);
     return;
   }
 
-  // הודעת טקסט — פתיחת תפריט קטגוריות
-  if (type === 'text') {
-    console.log('[handler] new text message → showing categories');
-    const categories = await getCategories();
-    if (categories.length === 0) {
-      await sendText(phoneNumberId, phone, 'מצטערים, לא נמצאו קטגוריות כרגע. נסה שוב מאוחר יותר.');
-      return;
-    }
-    await sendCategoryList(phoneNumberId, phone, name, categories);
-    return;
-  }
+  // ── תגובות אינטראקטיביות ──
+  if (type === 'interactive') {
+    const interactiveType = message.interactive?.type;
 
-  // כפתור quick_reply מקרוסלה (type=button)
-  if (type === 'button') {
-    const payload = message.button?.payload || '';
-    console.log(`[handler] button payload=${payload}`);
-    if (payload.startsWith('choose_greeting_')) {
-      console.log(`[handler] greeting selected via button: ${payload}`);
-      const greetingId = payload.replace('choose_greeting_', '');
-      console.log(`[handler] fetching greeting id=${greetingId}`);
-      const greeting = await getGreetingById(greetingId);
-      console.log(`[handler] greeting found=${!!greeting} fields=${greeting?.content?.length}`);
+    // שלב 1/7/13 — סיום מילוי Flow
+    if (interactiveType === 'nfm_reply') {
+      const responseJson = JSON.parse(message.interactive.nfm_reply.response_json);
 
-      if (!greeting || !greeting.content || greeting.content.length === 0) {
-        await sendText(phoneNumberId, phone, 'שגיאה בטעינת פרטי הברכה. נסה שוב.');
+      // שלב 1–2 — סיום onboarding (שם + מייל)
+      if (responseJson?.form === 'onboarding') {
+        await handleOnboardingComplete(phoneNumberId, phone, responseJson);
         return;
       }
 
-      try {
-        const flowId = await getOrCreateFlow(greeting);
-        await sendFlowMessage(phoneNumberId, phone, flowId, `מלא את הפרטים לברכה:`);
-      } catch (err) {
-        console.error('[handler] Flow creation failed, falling back to Q&A:', err.message, err.response?.data);
-        setSession(phone, {
-          greetingId: parseInt(greetingId),
-          fields: greeting.content,
-          currentFieldIndex: 0,
-          collected: { phone },
-          phoneNumberId,
-        });
-        const firstField = greeting.content[0];
-        await sendText(
-          phoneNumberId,
-          phone,
-          `בחרת ברכה! נמלא יחד את הפרטים.\n\nשלח "ביטול" בכל שלב לחזרה לתפריט.\n\n` +
-          `(1/${greeting.content.length}) ${firstField.name}:`
-        );
-      }
-    }
-    return;
-  }
-
-  // תגובה אינטראקטיבית
-  if (type === 'interactive') {
-    const interactiveType = message.interactive?.type;
-    let selectedId = '';
-    let selectedTitle = '';
-
-    if (interactiveType === 'nfm_reply') {
-      const responseJson = JSON.parse(message.interactive.nfm_reply.response_json);
+      // שלב 7/14 — סיום טופס פרטי האירוע
       const { greetingId, fields } = normalizeFlowResponseFields(responseJson);
-      const parsedGreetingId = parseInt(greetingId, 10);
-
-      console.log(
-        `[handler] nfm_reply greetingId=${greetingId} fieldKeys=${Object.keys(fields).join(',')} fields=${JSON.stringify(fields)}`
-      );
-      const sanitizedFields = fields;
-      await createEcard(phoneNumberId, phone, parsedGreetingId, { ...sanitizedFields, phone });
+      await handleEventFormComplete(phoneNumberId, phone, parseInt(greetingId, 10), fields);
       return;
     }
 
+    let selectedId = '';
+    let selectedTitle = '';
     if (interactiveType === 'list_reply') {
       selectedId = message.interactive.list_reply?.id || '';
       selectedTitle = message.interactive.list_reply?.title || '';
@@ -144,152 +104,337 @@ async function handleMessage(message, contact, phoneNumberId) {
       selectedId = message.interactive.button_reply?.id || '';
       selectedTitle = message.interactive.button_reply?.title || '';
     }
+    console.log(`[handler] interactive type=${interactiveType} selectedId=${selectedId}`);
 
-    console.log(`[handler] interactive: type=${interactiveType} selectedId=${selectedId}`);
-
-    // בחירת קטגוריה → מציג קרוסלה של ברכות
+    // שלב 3–4 — בחירת קטגוריה → הצגת עיצובים
     if (selectedId.startsWith('cat_')) {
-      console.log(`[handler] category selected: ${selectedId}`);
-      const categoryId = selectedId.replace('cat_', '');
-      console.log(`[handler] fetching greetings for category ${categoryId}`);
-      let greetings;
-      try {
-        greetings = await getGreetingsByCategory(categoryId);
-      } catch (catErr) {
-        console.error('[handler] getGreetingsByCategory error:', catErr.message);
-        await sendText(phoneNumberId, phone, 'שגיאה בטעינת ברכות. נסה שוב.');
-        return;
-      }
-      console.log(`[handler] greetings count=${greetings.length}`);
-      if (greetings.length === 0) {
-        await sendText(phoneNumberId, phone, `לא נמצאו ברכות לקטגוריה "${selectedTitle}".`);
-        return;
-      }
-      console.log(`[handler] sending carousel for category ${categoryId}`);
-      try {
-        await sendGreetingCarousel(phoneNumberId, phone, selectedTitle, greetings);
-        console.log(`[handler] carousel sent OK`);
-      } catch (carouselErr) {
-        console.warn('[handler] Carousel failed, falling back to list:', carouselErr.message);
-        await sendGreetingList(phoneNumberId, phone, selectedTitle, greetings);
-        console.log(`[handler] list sent OK`);
-      }
+      await handleCategorySelected(phoneNumberId, phone, selectedId.replace('cat_', ''), selectedTitle);
       return;
     }
 
-    // בחירת ברכה → פתיחת Flow
+    // שלב 5 — בחירת עיצוב (מתוך רשימת fallback)
     if (selectedId.startsWith('choose_greeting_')) {
-      console.log(`[handler] greeting selected: ${selectedId}`);
-      const greetingId = selectedId.replace('choose_greeting_', '');
-      console.log(`[handler] fetching greeting id=${greetingId}`);
-      const greeting = await getGreetingById(greetingId);
-      console.log(`[handler] greeting found=${!!greeting} fields=${greeting?.content?.length}`);
-
-      if (!greeting || !greeting.content || greeting.content.length === 0) {
-        await sendText(phoneNumberId, phone, 'שגיאה בטעינת פרטי הברכה. נסה שוב.');
-        return;
-      }
-
-      try {
-        const flowId = await getOrCreateFlow(greeting);
-        await sendFlowMessage(phoneNumberId, phone, flowId, `מלא את הפרטים לברכה:`);
-      } catch (err) {
-        console.error('[handler] Flow creation failed, falling back to Q&A:', err.message, err.response?.data);
-        setSession(phone, {
-          greetingId: parseInt(greetingId),
-          fields: greeting.content,
-          currentFieldIndex: 0,
-          collected: { phone },
-          phoneNumberId,
-        });
-        const firstField = greeting.content[0];
-        await sendText(
-          phoneNumberId,
-          phone,
-          `בחרת ברכה! נמלא יחד את הפרטים.\n\nשלח "ביטול" בכל שלב לחזרה לתפריט.\n\n` +
-          `(1/${greeting.content.length}) ${firstField.name}:`
-        );
-      }
+      await handleDesignChosen(phoneNumberId, phone, selectedId.replace('choose_greeting_', ''));
       return;
+    }
+
+    // שלב 6 — לחיצה על "הזנת פרטי האירוע"
+    if (selectedId.startsWith('open_event_form_')) {
+      await handleOpenEventForm(phoneNumberId, phone, selectedId.replace('open_event_form_', ''));
+      return;
+    }
+
+    // שלב 13 — לחיצה על "תיקון ההזמנה"
+    if (selectedId === 'edit_order') {
+      await handleEditOrder(phoneNumberId, phone);
+      return;
+    }
+    return;
+  }
+
+  // שלב 5 — בחירת עיצוב מהקרוסלה מגיעה כ-type=button (quick_reply)
+  if (type === 'button') {
+    const payload = message.button?.payload || '';
+    console.log(`[handler] button payload=${payload}`);
+    if (payload.startsWith('choose_greeting_')) {
+      await handleDesignChosen(phoneNumberId, phone, payload.replace('choose_greeting_', ''));
+    } else if (payload.startsWith('open_event_form_')) {
+      await handleOpenEventForm(phoneNumberId, phone, payload.replace('open_event_form_', ''));
+    }
+    return;
+  }
+
+  // ── הודעת טקסט רגילה ──
+  if (type === 'text') {
+    const profile = getProfile(phone);
+    if (!profile) {
+      // שלב 1 — פתיחה + איסוף שם ומייל
+      await sendText(phoneNumberId, phone, M.OPENING);
+      await startOnboarding(phoneNumberId, phone);
+    } else {
+      // לקוח חוזר — ישר לבחירת קטגוריה
+      await sendText(phoneNumberId, phone, M.welcomeBack(profile.name));
+      await showCategories(phoneNumberId, phone);
     }
   }
 }
 
-/**
- * טיפול בקלט משתמש בזמן מילוי שדות (Q&A fallback)
- */
-async function handleSessionInput(phone, phoneNumberId, session, text) {
-  const { fields, currentFieldIndex, collected, greetingId } = session;
+// ─────────────────────────────────────────────────────────────
+// שלב 1 — onboarding (שם + מייל)
+// ─────────────────────────────────────────────────────────────
+async function startOnboarding(phoneNumberId, phone) {
+  try {
+    const flowId = await getOnboardingFlow();
+    await sendFlowMessage(phoneNumberId, phone, flowId, {
+      bodyText: M.ONBOARDING_FLOW_BODY,
+      headerText: 'פרטים אישיים',
+      cta: 'מילוי פרטים',
+      screen: 'ONBOARDING_FORM',
+    });
+  } catch (err) {
+    console.error('[handler] onboarding flow failed, Q&A fallback:', err.message, err.response?.data);
+    setSession(phone, { kind: 'onboarding', step: 'name', collected: {}, phoneNumberId });
+    await sendText(phoneNumberId, phone, '👤 איך קוראים לכם?');
+  }
+}
 
+async function handleOnboardingComplete(phoneNumberId, phone, responseJson) {
+  const name = String(responseJson.name || '').trim() || 'לקוח';
+  const email = String(responseJson.email || '').trim();
+  setProfile(phone, { name, email });
+  console.log(`[handler] onboarding done name="${name}" email="${email}"`);
+
+  await sendText(phoneNumberId, phone, M.afterDetails(name));
+  await showCategories(phoneNumberId, phone);
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 3–4 — קטגוריות ועיצובים
+// ─────────────────────────────────────────────────────────────
+async function showCategories(phoneNumberId, phone) {
+  const categories = await getCategories();
+  if (categories.length === 0) {
+    await sendText(phoneNumberId, phone, M.ERR_NO_CATEGORIES);
+    return;
+  }
+  await sendCategoryList(phoneNumberId, phone, M.CATEGORY_LIST_BODY, categories);
+}
+
+async function handleCategorySelected(phoneNumberId, phone, categoryId, categoryTitle) {
+  await sendText(phoneNumberId, phone, M.loadingDesigns(categoryTitle));
+
+  let greetings;
+  try {
+    greetings = await getGreetingsByCategory(categoryId);
+  } catch (err) {
+    console.error('[handler] getGreetingsByCategory error:', err.message);
+    await sendText(phoneNumberId, phone, M.ERR_LOAD_DESIGNS);
+    return;
+  }
+
+  if (!greetings || greetings.length === 0) {
+    await sendText(phoneNumberId, phone, M.noDesignsForCategory(categoryTitle));
+    return;
+  }
+
+  await sendText(phoneNumberId, phone, M.DESIGNS_INTRO);
+  try {
+    await sendGreetingCarousel(phoneNumberId, phone, categoryTitle, greetings);
+  } catch (carouselErr) {
+    console.warn('[handler] carousel failed, falling back to list:', carouselErr.message);
+    await sendGreetingList(phoneNumberId, phone, categoryTitle, greetings);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 5 — נבחר עיצוב → כפתור "הזנת פרטי האירוע"
+// ─────────────────────────────────────────────────────────────
+async function handleDesignChosen(phoneNumberId, phone, greetingId) {
+  const greeting = await getGreetingById(greetingId);
+  if (!greeting || !greeting.content || greeting.content.length === 0) {
+    await sendText(phoneNumberId, phone, M.ERR_LOAD_GREETING);
+    return;
+  }
+  await sendButtons(phoneNumberId, phone, M.DESIGN_CHOSEN, [
+    { id: `open_event_form_${greetingId}`, title: M.BTN_FILL_DETAILS },
+  ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 6–7 — "לפני שמתחילים" + פתיחת טופס פרטי האירוע
+// ─────────────────────────────────────────────────────────────
+async function handleOpenEventForm(phoneNumberId, phone, greetingId) {
+  const greeting = await getGreetingById(greetingId);
+  if (!greeting || !greeting.content || greeting.content.length === 0) {
+    await sendText(phoneNumberId, phone, M.ERR_LOAD_GREETING);
+    return;
+  }
+  await sendText(phoneNumberId, phone, M.BEFORE_FORM);
+  await openGreetingForm(phoneNumberId, phone, greeting, {
+    bodyText: 'למילוי פרטי האירוע לחצו על הכפתור 👇',
+  });
+}
+
+/**
+ * פותח את Flow פרטי האירוע, עם נפילה ל-Q&A אם ה-Flow אינו זמין.
+ * הערה: WhatsApp לא תומך ב-prefill של TextInput, כך שתיקון פותח טופס ריק.
+ */
+async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText } = {}) {
+  try {
+    const flowId = await getGreetingFlow(greeting);
+    await sendFlowMessage(phoneNumberId, phone, flowId, {
+      bodyText: bodyText || 'מלא את הפרטים לעיצוב',
+      headerText: 'פרטי האירוע',
+      cta: 'מילוי פרטים',
+      screen: 'GREETING_FORM',
+    });
+  } catch (err) {
+    console.error('[handler] greeting flow failed, Q&A fallback:', err.message, err.response?.data);
+    setSession(phone, {
+      kind: 'greeting',
+      greetingId: parseInt(greeting.id, 10),
+      fields: greeting.content,
+      currentFieldIndex: 0,
+      collected: { phone },
+      phoneNumberId,
+    });
+    const firstField = greeting.content[0];
+    await sendText(
+      phoneNumberId,
+      phone,
+      `נמלא יחד את הפרטים.\nשלחו "ביטול" בכל שלב לחזרה לתפריט.\n\n(1/${greeting.content.length}) ${firstField.name}:`
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 13 — פתיחת תיקון
+// ─────────────────────────────────────────────────────────────
+async function handleEditOrder(phoneNumberId, phone) {
+  const order = getLastOrder(phone);
+  if (!order || !order.greetingId) {
+    await sendText(phoneNumberId, phone, 'לא נמצאה הזמנה אחרונה לתיקון.');
+    return;
+  }
+  if (order.createdAt && Date.now() - order.createdAt > M.CORRECTION_WINDOW_MS) {
+    await sendText(phoneNumberId, phone, M.CORRECTION_EXPIRED);
+    return;
+  }
+
+  const greeting = await getGreetingById(order.greetingId);
+  if (!greeting || !greeting.content || greeting.content.length === 0) {
+    await sendText(phoneNumberId, phone, M.ERR_LOAD_GREETING);
+    return;
+  }
+
+  setLastOrder(phone, { editing: true });
+  await openGreetingForm(phoneNumberId, phone, greeting, {
+    bodyText: 'מלאו שוב את פרטי האירוע עם התיקון 👇',
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 7/14 — סיום טופס פרטי האירוע → יצירת העיצוב
+// ─────────────────────────────────────────────────────────────
+async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields) {
+  const order = getLastOrder(phone);
+  const isCorrection = !!order?.editing;
+  console.log(`[handler] event form complete greetingId=${greetingId} correction=${isCorrection}`);
+
+  if (isCorrection) {
+    await sendText(phoneNumberId, phone, M.CORRECTION_RECEIVED); // שלב 14
+  } else {
+    await sendText(phoneNumberId, phone, M.FORM_DONE); // שלב 8
+    // TODO(payment): שלבים 8–10 — קישור לסליקה והמתנה לאישור החיוב לפני יצירת העיצוב.
+  }
+
+  await generateAndSend(phoneNumberId, phone, greetingId, { ...fields, phone }, { correction: isCorrection });
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 11–12 / 15 — יצירת העיצוב ושליחתו
+// ─────────────────────────────────────────────────────────────
+async function generateAndSend(phoneNumberId, phone, greetingId, fields, { correction = false } = {}) {
+  const profile = getProfile(phone);
+
+  // שלב 11 — הודעות התקדמות (רק ביצירה ראשונה; בתיקון כבר נשלחה הודעת שלב 14)
+  if (!correction) {
+    for (const text of M.PROGRESS) {
+      await sendText(phoneNumberId, phone, text);
+      await sleep(700);
+    }
+  }
+
+  try {
+    const body = { post_id: greetingId, ...fields, generate_pdf: true };
+    // ה-backend שולח את המייל באיכות גבוהה (שלב 12) — מעבירים לו את כתובת הלקוח
+    if (profile?.email) body.email = profile.email;
+    if (profile?.name) body.customer_name = profile.name;
+
+    console.log('[handler] creating ecard:', JSON.stringify(body));
+    const { data } = await axios.post(`${process.env.CATALOG_BASE_URL}/create`, body, {
+      headers: { 'X-ECARD-API-KEY': process.env.CATALOG_API_KEY },
+    });
+    console.log('[handler] create response:', JSON.stringify(data));
+
+    const fileUrl =
+      data.image_url || data.url || data.pdf_url || data.file_url || data.download_url ||
+      data.link || data.data?.image_url || data.data?.url || data.result?.image_url || data.result?.url;
+
+    const caption = correction ? M.CORRECTED_CAPTION : M.DELIVERED_CAPTION;
+
+    if (fileUrl && isImageUrl(fileUrl)) {
+      try {
+        await sendImage(phoneNumberId, phone, fileUrl, caption);
+      } catch (imgErr) {
+        console.warn('[handler] sendImage failed, sending link instead:', imgErr.message);
+        await sendText(phoneNumberId, phone, `${caption}\n\n${fileUrl}`);
+      }
+    } else if (fileUrl) {
+      await sendText(phoneNumberId, phone, `${caption}\n\n${fileUrl}`);
+    } else {
+      await sendText(phoneNumberId, phone, `${caption}\n\n${JSON.stringify(data, null, 2).slice(0, 1000)}`);
+    }
+
+    // שמירת ההזמנה לצורך חלון התיקונים (שלב 13). ביצירה ראשונה קובעים createdAt.
+    setLastOrder(phone, {
+      greetingId,
+      fields,
+      editing: false,
+      ...(correction ? {} : { createdAt: Date.now() }),
+    });
+
+    if (!correction) {
+      await sendText(phoneNumberId, phone, M.EMAIL_NOTE); // שלב 12 — הודעת מייל
+      await sendButtons(phoneNumberId, phone, M.CORRECTIONS_OFFER, [
+        { id: 'edit_order', title: M.BTN_EDIT_ORDER },
+      ]); // שלב 13
+    }
+  } catch (err) {
+    console.error('[handler] create error:', err.message, err.response?.data);
+    await sendText(phoneNumberId, phone, M.ERR_CREATE);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Q&A fallback — מילוי שדות בטקסט כאשר Flow אינו זמין
+// ─────────────────────────────────────────────────────────────
+async function handleSessionInput(phone, phoneNumberId, session, text) {
+  // fallback של onboarding (שם → מייל)
+  if (session.kind === 'onboarding') {
+    if (session.step === 'name') {
+      setSession(phone, { ...session, step: 'email', collected: { ...session.collected, name: text } });
+      await sendText(phoneNumberId, phone, '📧 ומה כתובת המייל שלכם?');
+      return;
+    }
+    // step === 'email'
+    if (!isValidEmail(text)) {
+      await sendText(phoneNumberId, phone, 'נראה שכתובת המייל אינה תקינה. נסו שוב 🙏');
+      return;
+    }
+    const name = (session.collected.name || '').trim() || 'לקוח';
+    deleteSession(phone);
+    setProfile(phone, { name, email: text.trim() });
+    await sendText(phoneNumberId, phone, M.afterDetails(name));
+    await showCategories(phoneNumberId, phone);
+    return;
+  }
+
+  // fallback של מילוי פרטי האירוע
+  const { fields, currentFieldIndex, collected, greetingId } = session;
   const currentField = fields[currentFieldIndex];
   collected[currentField.param] = text;
 
   const nextIndex = currentFieldIndex + 1;
-
   if (nextIndex < fields.length) {
     setSession(phone, { ...session, currentFieldIndex: nextIndex, collected });
     const nextField = fields[nextIndex];
-    await sendText(
-      phoneNumberId,
-      phone,
-      `(${nextIndex + 1}/${fields.length}) ${nextField.name}:`
-    );
+    await sendText(phoneNumberId, phone, `(${nextIndex + 1}/${fields.length}) ${nextField.name}:`);
     return;
   }
 
-  console.log(`[handler] all fields collected, calling create API. greetingId=${greetingId}`);
   deleteSession(phone);
-  await createEcard(phoneNumberId, phone, greetingId, collected);
-}
-
-/**
- * יצירת ברכה דרך ה-API ושליחת הקישור למשתמש
- */
-async function createEcard(phoneNumberId, phone, greetingId, fields) {
-  await sendText(phoneNumberId, phone, 'מעבד את הברכה... ⏳');
-
-  try {
-    const body = {
-      post_id: greetingId,
-      ...fields,
-      generate_pdf: true,
-    };
-
-    console.log('Creating ecard:', JSON.stringify(body));
-
-    const { data } = await axios.post(
-      `${process.env.CATALOG_BASE_URL}/create`,
-      body,
-      { headers: { 'X-ECARD-API-KEY': process.env.CATALOG_API_KEY } }
-    );
-
-    console.log('Create response:', JSON.stringify(data));
-
-    const fileUrl =
-      data.image_url || data.url || data.pdf_url || data.file_url || data.download_url || data.link || data.data?.image_url || data.data?.url || data.result?.image_url || data.result?.url;
-
-    if (fileUrl) {
-      if (isImageUrl(fileUrl)) {
-        try {
-          await sendImage(phoneNumberId, phone, fileUrl, '✅ הברכה שלך מוכנה!');
-        } catch (imgErr) {
-          console.warn('sendImage failed, sending link instead:', imgErr.message);
-          await sendText(phoneNumberId, phone, `✅ הברכה שלך מוכנה!\n\n${fileUrl}`);
-        }
-      } else {
-        await sendText(phoneNumberId, phone, `✅ הברכה שלך מוכנה!\n\n${fileUrl}`);
-      }
-    } else {
-      await sendText(
-        phoneNumberId,
-        phone,
-        `✅ הברכה נוצרה!\n\n${JSON.stringify(data, null, 2).slice(0, 1000)}`
-      );
-    }
-  } catch (err) {
-    console.error('Create error:', err.message, err.response?.data);
-    await sendText(phoneNumberId, phone, '❌ אירעה שגיאה ביצירת הברכה. נסה שוב מאוחר יותר.');
-  }
+  await handleEventFormComplete(phoneNumberId, phone, greetingId, collected);
 }
 
 module.exports = { handleMessage };
