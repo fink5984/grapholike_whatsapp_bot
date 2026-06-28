@@ -12,7 +12,7 @@ const {
   sendFlowMessage,
 } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
-const { getGreetingFlow, getOnboardingFlow } = require('./flows');
+const { getGreetingFlow } = require('./flows');
 const { getProfile, setProfile, getLastOrder, setLastOrder } = require('./profiles');
 const M = require('./messages');
 
@@ -79,17 +79,9 @@ async function handleMessage(message, contact, phoneNumberId) {
   if (type === 'interactive') {
     const interactiveType = message.interactive?.type;
 
-    // שלב 1/7/13 — סיום מילוי Flow
+    // שלב 7/13 — סיום מילוי Flow פרטי האירוע
     if (interactiveType === 'nfm_reply') {
       const responseJson = JSON.parse(message.interactive.nfm_reply.response_json);
-
-      // שלב 1–2 — סיום onboarding (שם + מייל)
-      if (responseJson?.form === 'onboarding') {
-        await handleOnboardingComplete(phoneNumberId, phone, responseJson);
-        return;
-      }
-
-      // שלב 7/14 — סיום טופס פרטי האירוע
       const { greetingId, fields } = normalizeFlowResponseFields(responseJson);
       await handleEventFormComplete(phoneNumberId, phone, parseInt(greetingId, 10), fields);
       return;
@@ -160,32 +152,11 @@ async function handleMessage(message, contact, phoneNumberId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// שלב 1 — onboarding (שם + מייל)
+// שלב 1 — onboarding (שם + מייל) בשתי שאלות טקסט נפרדות
 // ─────────────────────────────────────────────────────────────
 async function startOnboarding(phoneNumberId, phone) {
-  try {
-    const flowId = await getOnboardingFlow();
-    await sendFlowMessage(phoneNumberId, phone, flowId, {
-      bodyText: M.ONBOARDING_FLOW_BODY,
-      headerText: 'פרטים אישיים',
-      cta: 'מילוי פרטים',
-      screen: 'ONBOARDING_FORM',
-    });
-  } catch (err) {
-    console.error('[handler] onboarding flow failed, Q&A fallback:', err.message, err.response?.data);
-    setSession(phone, { kind: 'onboarding', step: 'name', collected: {}, phoneNumberId });
-    await sendText(phoneNumberId, phone, '👤 איך קוראים לכם?');
-  }
-}
-
-async function handleOnboardingComplete(phoneNumberId, phone, responseJson) {
-  const name = String(responseJson.name || '').trim() || 'לקוח';
-  const email = String(responseJson.email || '').trim();
-  setProfile(phone, { name, email });
-  console.log(`[handler] onboarding done name="${name}" email="${email}"`);
-
-  await sendText(phoneNumberId, phone, M.afterDetails(name));
-  await showCategories(phoneNumberId, phone);
+  setSession(phone, { kind: 'onboarding', step: 'name', collected: {}, phoneNumberId });
+  await sendText(phoneNumberId, phone, M.ASK_NAME);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -404,7 +375,7 @@ async function handleSessionInput(phone, phoneNumberId, session, text) {
   if (session.kind === 'onboarding') {
     if (session.step === 'name') {
       setSession(phone, { ...session, step: 'email', collected: { ...session.collected, name: text } });
-      await sendText(phoneNumberId, phone, '📧 ומה כתובת המייל שלכם?');
+      await sendText(phoneNumberId, phone, M.ASK_EMAIL);
       return;
     }
     // step === 'email'

@@ -171,64 +171,6 @@ function buildGreetingFlowJson(greeting) {
 }
 
 /**
- * Flow לאיסוף שם + מייל (שלב 1).
- * נוסחת ה-complete מסומנת ב-form:'onboarding' כדי שה-handler יבדיל בינו
- * לבין טופס פרטי האירוע.
- */
-function buildOnboardingFlowJson() {
-  return {
-    version: '6.0',
-    screens: [
-      {
-        id: 'ONBOARDING_FORM',
-        title: 'פרטים אישיים',
-        terminal: true,
-        success: true,
-        data: {},
-        layout: {
-          type: 'SingleColumnLayout',
-          children: [
-            {
-              type: 'Form',
-              name: 'onboarding_form',
-              children: [
-                {
-                  type: 'TextInput',
-                  label: 'איך קוראים לכם?',
-                  name: 'name',
-                  'input-type': 'text',
-                  required: true,
-                },
-                {
-                  type: 'TextInput',
-                  label: 'כתובת מייל',
-                  name: 'email',
-                  'input-type': 'email',
-                  'helper-text': 'לשם נשלח את העיצוב באיכות גבוהה',
-                  required: true,
-                },
-                {
-                  type: 'Footer',
-                  label: 'המשך',
-                  'on-click-action': {
-                    name: 'complete',
-                    payload: {
-                      form: 'onboarding',
-                      name: '${form.name}',
-                      email: '${form.email}',
-                    },
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      },
-    ],
-  };
-}
-
-/**
  * מאתר/יוצר/מפרסם Flow לפי מפתח לוגי (key) ומחזיר את ה-flowId.
  * key לדוגמה: "greeting_123" או "onboarding".
  */
@@ -273,8 +215,4 @@ function getGreetingFlow(greeting) {
   return getOrCreateFlowByKey(`greeting_${greeting.id}`, buildGreetingFlowJson(greeting));
 }
 
-function getOnboardingFlow() {
-  return getOrCreateFlowByKey('onboarding', buildOnboardingFlowJson());
-}
-
-module.exports = { getGreetingFlow, getOnboardingFlow };
+module.exports = { getGreetingFlow };
