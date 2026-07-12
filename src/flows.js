@@ -37,10 +37,10 @@ function helperTextForField(field) {
 }
 
 // Bump this version when flow JSON structure changes to force fresh flows.
-// v5: greeting form now actually declares a screen `data` schema and binds each
-//     TextInput `init-value` to it, so the correction step (13) can reopen the
-//     flow pre-filled with the values entered in the original order.
-const FLOW_NAME_VERSION = 'v5';
+// v6: prefill via the Form-level `init-values` map bound to ${data.init_values}
+//     (per-input `init-value` is rejected by Flow JSON 6.0). Lets the correction
+//     step (13) reopen the flow pre-filled with the original order's values.
+const FLOW_NAME_VERSION = 'v6';
 
 async function findExistingFlowId(authHeader, wabaId, keyPrefix) {
   const prefix = `${keyPrefix}_${FLOW_NAME_VERSION}`;
@@ -124,14 +124,11 @@ async function uploadAndPublishFlow(authHeader, flowId, flowJson) {
 function buildGreetingFlowJson(greeting) {
   const fields = greeting.content || [];
 
-  // Screen data schema — every field is a dynamic string supplied at runtime
-  // via the flow message's flow_action_payload.data.
-  const dataSchema = {};
+  // Example init-values object for the screen data schema. Values are supplied
+  // at runtime via the flow message's flow_action_payload.data.init_values.
+  const exampleInitValues = {};
   for (const field of fields) {
-    dataSchema[field.param] = {
-      type: 'string',
-      __example__: String(field.name || field.param || 'ערך'),
-    };
+    exampleInitValues[field.param] = String(field.name || field.param || '');
   }
 
   const formChildren = fields.map((field) => ({
@@ -140,7 +137,6 @@ function buildGreetingFlowJson(greeting) {
     name: field.param,
     'input-type': field.param === 'phone' ? 'phone' : 'text',
     'helper-text': helperTextForField(field),
-    'init-value': `\${data.${field.param}}`,
     required: true,
   }));
 
@@ -167,13 +163,21 @@ function buildGreetingFlowJson(greeting) {
         title: 'פרטים לברכה',
         terminal: true,
         success: true,
-        data: dataSchema,
+        // init_values prefills the form; the bot passes it in every flow message
+        // (empty strings on first fill, original values on correction).
+        data: {
+          init_values: {
+            type: 'object',
+            __example__: exampleInitValues,
+          },
+        },
         layout: {
           type: 'SingleColumnLayout',
           children: [
             {
               type: 'Form',
               name: 'greeting_form',
+              'init-values': '${data.init_values}',
               children: formChildren,
             },
           ],

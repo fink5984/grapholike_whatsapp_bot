@@ -246,17 +246,19 @@ async function handleOpenEventForm(phoneNumberId, phone, greetingId) {
 async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText, prefill } = {}) {
   try {
     const flowId = await getGreetingFlow(greeting);
-    const data = {};
+    // init_values prefills the Form; empty strings on first fill, original
+    // order values on correction.
+    const initValues = {};
     for (const field of greeting.content || []) {
       const value = prefill ? prefill[field.param] : undefined;
-      data[field.param] = value != null ? String(value) : '';
+      initValues[field.param] = value != null ? String(value) : '';
     }
     await sendFlowMessage(phoneNumberId, phone, flowId, {
       bodyText: bodyText || 'מלא את הפרטים לעיצוב',
       headerText: 'פרטי האירוע',
       cta: 'מילוי פרטים',
       screen: 'GREETING_FORM',
-      data,
+      data: { init_values: initValues },
     });
   } catch (err) {
     console.error('[handler] greeting flow failed, Q&A fallback:', err.message, err.response?.data);
