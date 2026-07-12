@@ -40,6 +40,16 @@ function extractOrderId(data, fileUrl) {
   return match ? match[1] : null;
 }
 
+/**
+ * מוסיף פרמטר cache-busting לכתובת התמונה. תיקון (/update) מייצר את הקובץ
+ * באותו שם, כך שבלי זה וואטסאפ/הדפדפן מציגים תצוגה שמורה של העיצוב הישן.
+ */
+function withCacheBuster(url) {
+  if (!url) return url;
+  const sep = String(url).includes('?') ? '&' : '?';
+  return `${url}${sep}v=${Date.now()}`;
+}
+
 function normalizeFlowResponseFields(responseJson) {
   const obj = responseJson && typeof responseJson === 'object' ? responseJson : {};
   console.log('[handler] nfm_reply raw:', JSON.stringify(obj));
@@ -368,9 +378,12 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
     });
     console.log(`[handler] ${useUpdate ? 'update' : 'create'} response:`, JSON.stringify(data));
 
-    const fileUrl =
+    const rawFileUrl =
       data.image_url || data.url || data.pdf_url || data.file_url || data.download_url ||
       data.link || data.data?.image_url || data.data?.url || data.result?.image_url || data.result?.url;
+
+    // /update מייצר את הקובץ באותו שם — cache-busting מכריח טעינה מחדש של הגרסה המעודכנת.
+    const fileUrl = withCacheBuster(rawFileUrl);
 
     const caption = correction ? M.CORRECTED_CAPTION : M.DELIVERED_CAPTION;
 
@@ -389,7 +402,7 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
 
     // שמירת ההזמנה לצורך חלון התיקונים (שלב 13). ביצירה ראשונה קובעים createdAt
     // ושומרים את order_id שהוחזר, כדי שתיקון עתידי יקרא ל-/update על אותה הזמנה.
-    const newOrderId = useUpdate ? orderId : extractOrderId(data, fileUrl);
+    const newOrderId = useUpdate ? orderId : extractOrderId(data, rawFileUrl);
     setLastOrder(phone, {
       greetingId,
       fields,
