@@ -240,16 +240,23 @@ async function handleOpenEventForm(phoneNumberId, phone, greetingId) {
 
 /**
  * פותח את Flow פרטי האירוע, עם נפילה ל-Q&A אם ה-Flow אינו זמין.
- * הערה: WhatsApp לא תומך ב-prefill של TextInput, כך שתיקון פותח טופס ריק.
+ * prefill — מפת param→ערך לפתיחת הטופס מלא (תיקון, שלב 13). מילוי ראשון פותח ריק.
+ * תמיד מעבירים data לכל שדה (מחרוזת ריקה כברירת מחדל) כדי לספק את סכמת ה-data.
  */
-async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText } = {}) {
+async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText, prefill } = {}) {
   try {
     const flowId = await getGreetingFlow(greeting);
+    const data = {};
+    for (const field of greeting.content || []) {
+      const value = prefill ? prefill[field.param] : undefined;
+      data[field.param] = value != null ? String(value) : '';
+    }
     await sendFlowMessage(phoneNumberId, phone, flowId, {
       bodyText: bodyText || 'מלא את הפרטים לעיצוב',
       headerText: 'פרטי האירוע',
       cta: 'מילוי פרטים',
       screen: 'GREETING_FORM',
+      data,
     });
   } catch (err) {
     console.error('[handler] greeting flow failed, Q&A fallback:', err.message, err.response?.data);
@@ -292,7 +299,8 @@ async function handleEditOrder(phoneNumberId, phone) {
 
   setLastOrder(phone, { editing: true });
   await openGreetingForm(phoneNumberId, phone, greeting, {
-    bodyText: 'מלאו שוב את פרטי האירוע עם התיקון 👇',
+    bodyText: 'הפרטים כבר מלאים — ערכו את מה שצריך ושלחו שוב 👇',
+    prefill: order.fields, // פתיחת הטופס מלא בערכים מההזמנה המקורית
   });
 }
 

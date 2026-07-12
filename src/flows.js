@@ -37,9 +37,10 @@ function helperTextForField(field) {
 }
 
 // Bump this version when flow JSON structure changes to force fresh flows.
-// v4: greeting form now declares screen `data` + init-value bindings so the
-//     correction step (13) can reopen the flow pre-filled with existing values.
-const FLOW_NAME_VERSION = 'v4';
+// v5: greeting form now actually declares a screen `data` schema and binds each
+//     TextInput `init-value` to it, so the correction step (13) can reopen the
+//     flow pre-filled with the values entered in the original order.
+const FLOW_NAME_VERSION = 'v5';
 
 async function findExistingFlowId(authHeader, wabaId, keyPrefix) {
   const prefix = `${keyPrefix}_${FLOW_NAME_VERSION}`;
@@ -116,11 +117,22 @@ async function uploadAndPublishFlow(authHeader, flowId, flowJson) {
 /**
  * Flow לאיסוף פרטי האירוע (שלב 7).
  * השדות נטענים דינמית מתוך greeting.content.
- * הערה: WhatsApp לא תומך ב-init-value על TextInput, ולכן אין prefill —
- * תיקון (שלב 13) פותח מחדש טופס ריק והמשתמש מזין את הפרטים שוב.
+ * המסך מכריז על סכמת `data` וכל TextInput קשור אליה ב-init-value, כך שבתיקון
+ * (שלב 13) אפשר לפתוח מחדש את הטופס מלא בערכים שהוזנו בהזמנה המקורית.
+ * ההודעה חייבת להעביר data לכל שדה (מחרוזת ריקה במילוי ראשון).
  */
 function buildGreetingFlowJson(greeting) {
   const fields = greeting.content || [];
+
+  // Screen data schema — every field is a dynamic string supplied at runtime
+  // via the flow message's flow_action_payload.data.
+  const dataSchema = {};
+  for (const field of fields) {
+    dataSchema[field.param] = {
+      type: 'string',
+      __example__: String(field.name || field.param || 'ערך'),
+    };
+  }
 
   const formChildren = fields.map((field) => ({
     type: 'TextInput',
@@ -128,6 +140,7 @@ function buildGreetingFlowJson(greeting) {
     name: field.param,
     'input-type': field.param === 'phone' ? 'phone' : 'text',
     'helper-text': helperTextForField(field),
+    'init-value': `\${data.${field.param}}`,
     required: true,
   }));
 
@@ -154,7 +167,7 @@ function buildGreetingFlowJson(greeting) {
         title: 'פרטים לברכה',
         terminal: true,
         success: true,
-        data: {},
+        data: dataSchema,
         layout: {
           type: 'SingleColumnLayout',
           children: [
