@@ -28,6 +28,18 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 }
 
+/**
+ * מזהה ההזמנה שנוצרה ב-/create, לצורך /update בשלב התיקון.
+ * מנסה קודם שדה מפורש בתשובה, ואם אין — מחלץ את המספר משם קובץ התמונה
+ * (למשל ".../--385782.jpg" → "385782").
+ */
+function extractOrderId(data, fileUrl) {
+  const fromData = data?.order_id ?? data?.id ?? data?.post_id ?? data?.data?.order_id;
+  if (fromData != null && fromData !== '') return String(fromData);
+  const match = String(fileUrl || '').match(/(\d+)\.[a-z0-9]+(?:\?.*)?$/i);
+  return match ? match[1] : null;
+}
+
 function normalizeFlowResponseFields(responseJson) {
   const obj = responseJson && typeof responseJson === 'object' ? responseJson : {};
   console.log('[handler] nfm_reply raw:', JSON.stringify(obj));
@@ -317,16 +329,34 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
   }
 
   try {
-    const body = { post_id: greetingId, ...fields, generate_pdf: true };
-    // ה-backend שולח את המייל באיכות גבוהה (שלב 12) — מעבירים לו את כתובת הלקוח
-    if (profile?.email) body.email = profile.email;
-    if (profile?.name) body.customer_name = profile.name;
+    const order = getLastOrder(phone);
+    // תיקון (שלב 13) מרנדר מחדש את ההזמנה הקיימת דרך /update עם order_id;
+    // יצירה ראשונה יוצרת הזמנה חדשה דרך /create עם post_id.
+    const orderId = order?.orderId;
+    const useUpdate = correction && orderId;
+    if (correction && !orderId) {
+      console.warn('[handler] correction requested but no stored order_id — falling back to /create');
+    }
 
-    console.log('[handler] creating ecard:', JSON.stringify(body));
-    const { data } = await axios.post(`${process.env.CATALOG_BASE_URL}/create`, body, {
+    let endpoint;
+    let body;
+    if (useUpdate) {
+      endpoint = `${process.env.CATALOG_BASE_URL}/update`;
+      body = { order_id: orderId, ...fields, generate_pdf: true };
+      // ה-backend שולח את המייל באיכות גבוהה — מעבירים לו את כתובת הלקוח (mail)
+      if (profile?.email && body.mail == null) body.mail = profile.email;
+    } else {
+      endpoint = `${process.env.CATALOG_BASE_URL}/create`;
+      body = { post_id: greetingId, ...fields, generate_pdf: true };
+      if (profile?.email) body.email = profile.email;
+      if (profile?.name) body.customer_name = profile.name;
+    }
+
+    console.log(`[handler] ${useUpdate ? 'updating' : 'creating'} ecard:`, JSON.stringify(body));
+    const { data } = await axios.post(endpoint, body, {
       headers: { 'X-ECARD-API-KEY': process.env.CATALOG_API_KEY },
     });
-    console.log('[handler] create response:', JSON.stringify(data));
+    console.log(`[handler] ${useUpdate ? 'update' : 'create'} response:`, JSON.stringify(data));
 
     const fileUrl =
       data.image_url || data.url || data.pdf_url || data.file_url || data.download_url ||
@@ -347,11 +377,14 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
       await sendText(phoneNumberId, phone, `${caption}\n\n${JSON.stringify(data, null, 2).slice(0, 1000)}`);
     }
 
-    // שמירת ההזמנה לצורך חלון התיקונים (שלב 13). ביצירה ראשונה קובעים createdAt.
+    // שמירת ההזמנה לצורך חלון התיקונים (שלב 13). ביצירה ראשונה קובעים createdAt
+    // ושומרים את order_id שהוחזר, כדי שתיקון עתידי יקרא ל-/update על אותה הזמנה.
+    const newOrderId = useUpdate ? orderId : extractOrderId(data, fileUrl);
     setLastOrder(phone, {
       greetingId,
       fields,
       editing: false,
+      ...(newOrderId ? { orderId: newOrderId } : {}),
       ...(correction ? {} : { createdAt: Date.now() }),
     });
 
