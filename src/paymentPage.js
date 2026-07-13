@@ -309,8 +309,8 @@ function renderPaymentPage({ payment, mosadId, apiValid, callbackUrl, confirmUrl
   // כרטיסים שמורים לא עובדת, אז מציעים לפתוח בדפדפן האמיתי.
   (function () {
     var ua = navigator.userAgent || '';
-    var isAndroidWebView = /Android/i.test(ua) && (/\bwv\b/.test(ua) || /Version\/\d/.test(ua));
-    var isIosInApp = /iPhone|iPad|iPod/i.test(ua) && !/Safari\//i.test(ua);
+    var isAndroidWebView = /Android/i.test(ua) && (/\bwv\b/.test(ua) || /Version\/\d/.test(ua) || /WhatsApp/i.test(ua));
+    var isIosInApp = /iPhone|iPad|iPod/i.test(ua) && (!/Safari\//i.test(ua) || /WhatsApp/i.test(ua));
     if (!isAndroidWebView && !isIosInApp) return;
 
     var banner = document.getElementById('browser-banner');
@@ -340,10 +340,33 @@ function renderPaymentPage({ payment, mosadId, apiValid, callbackUrl, confirmUrl
   // רישום המאזין וטעינת ה-src פעם אחת בלבד בחיי הדף (לפי אזהרת התיעוד —
   // רישום כפול גורם לטיפול כפול ב-TransactionResponse ולחיוב כפול).
   window.addEventListener('message', ReadPostMessage);
-  frame.onload = function () {
-    PostNedarim({ Name: 'GetHeight' });
-  };
+
+  // GetHeight בפולינג עד לתשובה הראשונה: שליחה חד-פעמית ב-onload הולכת
+  // לאיבוד אם הסקריפט בתוך האייפרם עוד לא נטען (קורה ברשת איטית / WebView
+  // של וואטסאפ) — והטופס נתקע על "טוען...".
+  var heightReceived = false;
+  var heightPoll = null;
+
+  function startHeightPolling() {
+    if (heightPoll) return;
+    heightPoll = setInterval(function () {
+      if (heightReceived) { clearInterval(heightPoll); return; }
+      PostNedarim({ Name: 'GetHeight' });
+    }, 500);
+
+    // אחרי 12 שניות בלי תשובה — משחררים את הטופס עם גובה ברירת מחדל,
+    // כדי שהלקוח לא יישאר תקוע מול "טוען..."
+    setTimeout(function () {
+      if (heightReceived) return;
+      frame.style.height = '520px';
+      frameLoading.style.display = 'none';
+      if (!finished) payBtn.disabled = false;
+    }, 12000);
+  }
+
+  frame.onload = startHeightPolling;
   frame.src = 'https://www.matara.pro/nedarimplus/iframe/';
+  startHeightPolling();
 
   // שמירה על רספונסיביות — בכל שינוי גודל חלון מבקשים את הגובה מחדש
   window.addEventListener('resize', function () {
@@ -357,6 +380,7 @@ function renderPaymentPage({ payment, mosadId, apiValid, callbackUrl, confirmUrl
   function ReadPostMessage(event) {
     switch (event.data.Name) {
       case 'Height':
+        heightReceived = true;
         frame.style.height = (parseInt(event.data.Value) + 15) + 'px';
         frameLoading.style.display = 'none';
         if (!finished) payBtn.disabled = false;
