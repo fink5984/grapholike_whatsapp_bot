@@ -186,7 +186,16 @@ async function startOnboarding(phoneNumberId, phone) {
 // שלב 3–4 — קטגוריות ועיצובים
 // ─────────────────────────────────────────────────────────────
 async function showCategories(phoneNumberId, phone) {
-  const categories = await getCategories();
+  let categories;
+  try {
+    categories = await getCategories();
+  } catch (err) {
+    // כשל בשליפת הקטלוג (למשל WAF שחוסם את שרת האירוח) — מודיעים ללקוח
+    // במקום להשאיר אותו בלי תגובה, והפרטים המלאים נרשמים ב-[catalog] בלוג.
+    console.error('[handler] getCategories failed:', err.message);
+    await sendText(phoneNumberId, phone, M.ERR_NO_CATEGORIES);
+    return;
+  }
   if (categories.length === 0) {
     await sendText(phoneNumberId, phone, M.ERR_NO_CATEGORIES);
     return;

@@ -3,6 +3,7 @@ const express = require('express');
 const { handleMessage, handlePaymentConfirmed } = require('./handler');
 const { getPayment, isExpired } = require('./payments');
 const { renderPaymentPage, renderStatusPage } = require('./paymentPage');
+const { getCategories } = require('./catalog');
 
 const app = express();
 app.use(express.json());
@@ -91,6 +92,27 @@ app.post('/webhook', (req, res) => {
     });
   } catch (err) {
     console.error('Error parsing webhook:', err.message);
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// GET /debug/catalog — אבחון גישה לקטלוג מהשרת עצמו (Railway).
+// מוגן בטוקן האימות של ה-webhook: /debug/catalog?token=<WEBHOOK_VERIFY_TOKEN>
+// ────────────────────────────────────────────────────────────
+app.get('/debug/catalog', async (req, res) => {
+  if (req.query.token !== VERIFY_TOKEN) return res.sendStatus(403);
+  try {
+    const categories = await getCategories();
+    res.json({ ok: true, count: categories.length, categories });
+  } catch (err) {
+    const raw = err.response?.data;
+    res.status(500).json({
+      ok: false,
+      status: err.response?.status || null,
+      code: err.code || null,
+      message: err.message,
+      body: (typeof raw === 'string' ? raw.slice(0, 500) : raw) || null,
+    });
   }
 });
 
