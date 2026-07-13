@@ -10,6 +10,7 @@ const {
   markAsRead,
   sendTyping,
   sendFlowMessage,
+  sendCtaUrl,
 } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
 const { getGreetingFlow } = require('./flows');
@@ -388,7 +389,19 @@ async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
 
   const link = `${baseUrl}/pay/${payment.token}`;
   console.log(`[handler] payment link created token=${payment.token} amount=${amount}`);
-  await sendText(phoneNumberId, phone, M.paymentRequest(amount, link));
+  try {
+    // הודעת כפתור שפותח את דף התשלום ישירות
+    await sendCtaUrl(phoneNumberId, phone, {
+      headerText: M.PAYMENT_HEADER,
+      bodyText: M.paymentRequestBody(amount),
+      buttonText: M.BTN_PAY,
+      url: link,
+      footerText: M.PAYMENT_FOOTER,
+    });
+  } catch (err) {
+    console.warn('[handler] cta_url payment message failed, sending text link:', err.message);
+    await sendText(phoneNumberId, phone, M.paymentRequest(amount, link));
+  }
   return true;
 }
 

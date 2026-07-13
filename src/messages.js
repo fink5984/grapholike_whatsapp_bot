@@ -53,7 +53,16 @@ const BEFORE_FORM = `רגע לפני שמתחילים...
 const FORM_DONE = `נהדר 👍
 קיבלנו את כל הפרטים.`;
 
-// שלב 9 – בקשת תשלום (קישור לדף התשלום המאובטח עם נדרים פלוס)
+// שלב 9 – בקשת תשלום (הודעת כפתור שפותח את דף התשלום המאובטח — נדרים פלוס)
+const PAYMENT_HEADER = '💳 שלב התשלום';
+const paymentRequestBody = (amount) => `נשאר רק שלב התשלום.
+עלות העיצוב: ₪${amount}
+
+מיד לאחר אישור התשלום נתחיל בהכנת העיצוב שלכם 🎨`;
+const BTN_PAY = 'לתשלום מאובטח';
+const PAYMENT_FOOTER = 'תשלום מאובטח באמצעות נדרים פלוס';
+
+// fallback טקסטואלי אם הודעת הכפתור נכשלת
 const paymentRequest = (amount, link) => `💳 נשאר רק שלב התשלום.
 עלות העיצוב: ₪${amount}
 
@@ -124,6 +133,10 @@ module.exports = {
   BTN_FILL_DETAILS,
   BEFORE_FORM,
   FORM_DONE,
+  PAYMENT_HEADER,
+  paymentRequestBody,
+  BTN_PAY,
+  PAYMENT_FOOTER,
   paymentRequest,
   PAYMENT_SUCCESS,
   PROGRESS,

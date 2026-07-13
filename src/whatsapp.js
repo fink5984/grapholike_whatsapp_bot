@@ -301,6 +301,32 @@ function sendFlowMessage(phoneNumberId, to, flowId, opts = {}) {
 }
 
 /**
+ * שלח הודעה עם כפתור שפותח קישור (CTA URL) — למשל כפתור "לתשלום מאובטח".
+ * opts: { bodyText, buttonText, url, headerText?, footerText? }
+ */
+function sendCtaUrl(phoneNumberId, to, { bodyText, buttonText, url, headerText, footerText }) {
+  return sendRequest(phoneNumberId, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'cta_url',
+      ...(headerText ? { header: { type: 'text', text: headerText } } : {}),
+      body: { text: bodyText },
+      ...(footerText ? { footer: { text: footerText } } : {}),
+      action: {
+        name: 'cta_url',
+        parameters: {
+          display_text: String(buttonText).slice(0, 20),
+          url,
+        },
+      },
+    },
+  });
+}
+
+/**
  * שלח הודעה עם כפתורי reply (עד 3).
  * buttons: [{ id, title }]
  */
@@ -351,4 +377,4 @@ function sendGreetingList(phoneNumberId, to, categoryTitle, greetings) {
   });
 }
 
-module.exports = { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage, sendButtons };
+module.exports = { sendText, sendImage, sendCategoryList, sendGreetingCarousel, sendGreetingList, markAsRead, sendTyping, sendFlowMessage, sendButtons, sendCtaUrl };
