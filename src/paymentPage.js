@@ -164,7 +164,7 @@ const BASE_STYLE = `
     color: #7a6320;
     line-height: 1.45;
   }
-  .browser-banner .open-btn {
+  .open-btn {
     flex-shrink: 0;
     border: none;
     border-radius: 9px;
@@ -305,37 +305,45 @@ function renderPaymentPage({ payment, mosadId, apiValid, callbackUrl, confirmUrl
   var frameLoading = document.getElementById('frame-loading');
   var finished = false;
 
-  // זיהוי דפדפן פנימי (WebView של וואטסאפ ודומיו) — שם ההשלמה האוטומטית של
-  // כרטיסים שמורים לא עובדת, אז מציעים לפתוח בדפדפן האמיתי.
-  (function () {
-    var ua = navigator.userAgent || '';
-    var isAndroidWebView = /Android/i.test(ua) && (/\bwv\b/.test(ua) || /Version\/\d/.test(ua) || /WhatsApp/i.test(ua));
-    var isIosInApp = /iPhone|iPad|iPod/i.test(ua) && (!/Safari\//i.test(ua) || /WhatsApp/i.test(ua));
-    if (!isAndroidWebView && !isIosInApp) return;
+  // זיהוי דפדפן פנימי (WebView של וואטסאפ ודומיו) — שם האייפרם של נדרים
+  // לרוב לא נטען וההשלמה האוטומטית של כרטיסים לא עובדת. באנדרואיד מנסים
+  // לקפוץ אוטומטית לדפדפן החיצוני; בנוסף מוצג באנר עם כפתור ידני.
+  var ua = navigator.userAgent || '';
+  var isAndroidWebView = /Android/i.test(ua) && (/\bwv\b/.test(ua) || /Version\/\d/.test(ua) || /WhatsApp/i.test(ua));
+  var isIosInApp = /iPhone|iPad|iPod/i.test(ua) && (!/Safari\//i.test(ua) || /WhatsApp/i.test(ua));
+  var isInAppBrowser = isAndroidWebView || isIosInApp;
 
-    var banner = document.getElementById('browser-banner');
-    banner.style.display = 'flex';
-
-    document.getElementById('open-browser-btn').addEventListener('click', function () {
-      var url = window.location.href;
-      if (isAndroidWebView) {
-        // intent:// פותח את הדפדפן שמוגדר כברירת מחדל באנדרואיד
-        window.location.href =
-          'intent://' + window.location.host + window.location.pathname + window.location.search +
-          '#Intent;scheme=https;end';
-      } else {
-        // iOS — ניסיון לפתוח בספארי; אם נכשל, מעתיקים את הקישור
-        window.location.href = 'x-safari-' + url;
+  function openExternalBrowser() {
+    var url = window.location.href;
+    if (isAndroidWebView) {
+      // intent:// פותח את הדפדפן שמוגדר כברירת מחדל באנדרואיד
+      window.location.href =
+        'intent://' + window.location.host + window.location.pathname + window.location.search +
+        '#Intent;scheme=https;end';
+    } else if (isIosInApp) {
+      // iOS — ניסיון לפתוח בספארי
+      window.location.href = 'x-safari-' + url;
+    }
+    // אם הקפיצה לא עבדה — מעתיקים את הקישור כדי להדביק בדפדפן
+    setTimeout(function () {
+      if (document.hidden) return; // הקפיצה הצליחה
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          alert('הקישור הועתק — פתחו דפדפן והדביקו אותו');
+        }).catch(function () {});
       }
-      setTimeout(function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(function () {
-            alert('הקישור הועתק — הדביקו אותו בדפדפן');
-          }).catch(function () {});
-        }
-      }, 1500);
-    });
-  })();
+    }, 1500);
+  }
+
+  if (isInAppBrowser) {
+    document.getElementById('browser-banner').style.display = 'flex';
+    document.getElementById('open-browser-btn').addEventListener('click', openExternalBrowser);
+    if (isAndroidWebView) {
+      // ניסיון אוטומטי לפתוח את הדף בדפדפן האמיתי (הדף בוואטסאפ נשאר
+      // ברקע כגיבוי אם המערכת התעלמה מהקפיצה)
+      setTimeout(openExternalBrowser, 600);
+    }
+  }
 
   // רישום המאזין וטעינת ה-src פעם אחת בלבד בחיי הדף (לפי אזהרת התיעוד —
   // רישום כפול גורם לטיפול כפול ב-TransactionResponse ולחיוב כפול).
@@ -354,13 +362,19 @@ function renderPaymentPage({ payment, mosadId, apiValid, callbackUrl, confirmUrl
       PostNedarim({ Name: 'GetHeight' });
     }, 500);
 
-    // אחרי 12 שניות בלי תשובה — משחררים את הטופס עם גובה ברירת מחדל,
-    // כדי שהלקוח לא יישאר תקוע מול "טוען..."
+    // אחרי 12 שניות בלי תשובה — האייפרם לא נטען (קורה בדפדפן הפנימי של
+    // וואטסאפ ובמסנני תוכן). בלי תקשורת איתו אי אפשר לסלוק, אז מציגים
+    // הסבר וכפתור מעבר לדפדפן במקום כפתור תשלום מושבת.
     setTimeout(function () {
-      if (heightReceived) return;
-      frame.style.height = '520px';
-      frameLoading.style.display = 'none';
-      if (!finished) payBtn.disabled = false;
+      if (heightReceived || finished) return;
+      frameLoading.innerHTML =
+        '<div style="text-align:center;padding:14px">' +
+        '<div style="font-size:15px;font-weight:700;color:#3b2063;margin-bottom:6px">טופס התשלום לא נטען כאן</div>' +
+        (isInAppBrowser
+          ? '<div style="margin-bottom:12px">כדי להשלים את התשלום, פתחו את הדף בדפדפן של הטלפון:</div>' +
+            '<button class="open-btn" style="font-size:15px;padding:11px 22px" onclick="openExternalBrowser()">פתיחה בדפדפן</button>'
+          : '<div>בדקו את חיבור האינטרנט או נסו לרענן את הדף.</div>') +
+        '</div>';
     }, 12000);
   }
 
