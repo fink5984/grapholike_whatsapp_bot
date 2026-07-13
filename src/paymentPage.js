@@ -309,8 +309,8 @@ function renderPaymentPage({ payment, mosadId, apiValid, callbackUrl, confirmUrl
   // לרוב לא נטען וההשלמה האוטומטית של כרטיסים לא עובדת. באנדרואיד מנסים
   // לקפוץ אוטומטית לדפדפן החיצוני; בנוסף מוצג באנר עם כפתור ידני.
   var ua = navigator.userAgent || '';
-  var isAndroidWebView = /Android/i.test(ua) && (/\bwv\b/.test(ua) || /Version\/\d/.test(ua) || /WhatsApp/i.test(ua));
-  var isIosInApp = /iPhone|iPad|iPod/i.test(ua) && (!/Safari\//i.test(ua) || /WhatsApp/i.test(ua));
+  var isAndroidWebView = /Android/i.test(ua) && (/\\bwv\\b/.test(ua) || /Version\\/\\d/.test(ua) || /WhatsApp/i.test(ua));
+  var isIosInApp = /iPhone|iPad|iPod/i.test(ua) && (!/Safari\\//i.test(ua) || /WhatsApp/i.test(ua));
   var isInAppBrowser = isAndroidWebView || isIosInApp;
 
   function openExternalBrowser() {

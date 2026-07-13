@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const { handleMessage, handlePaymentConfirmed } = require('./handler');
-const { getPayment, isExpired } = require('./payments');
+const { createPayment, getPayment, isExpired } = require('./payments');
 const { renderPaymentPage, renderStatusPage } = require('./paymentPage');
 const { getCategories } = require('./catalog');
 
@@ -114,6 +114,26 @@ app.get('/debug/catalog', async (req, res) => {
       body: (typeof raw === 'string' ? raw.slice(0, 500) : raw) || null,
     });
   }
+});
+
+// ────────────────────────────────────────────────────────────
+// GET /debug/test-payment — יצירת קישור תשלום לדוגמה לבדיקות דף התשלום,
+// בלי לעבור את כל זרימת הבוט. מוגן בטוקן האימות של ה-webhook.
+// /debug/test-payment?token=<WEBHOOK_VERIFY_TOKEN>
+// ────────────────────────────────────────────────────────────
+app.get('/debug/test-payment', (req, res) => {
+  if (req.query.token !== VERIFY_TOKEN) return res.sendStatus(403);
+  const payment = createPayment({
+    phone: '972523413357',
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    greetingId: 384483,
+    fields: { name: 'בדיקה', parsha: 'בדיקה' },
+    amount: '5',
+    image: '',
+    customer: { name: 'דוד פינק', email: 'fink5984@gmail.com', phone: '972523413357' },
+  });
+  const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  res.json({ ok: true, link: `${baseUrl}/pay/${payment.token}` });
 });
 
 // ────────────────────────────────────────────────────────────
