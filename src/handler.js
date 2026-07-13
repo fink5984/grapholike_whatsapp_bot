@@ -14,6 +14,7 @@ const {
 const { getSession, setSession, deleteSession } = require('./sessions');
 const { getGreetingFlow } = require('./flows');
 const { getProfile, setProfile, getLastOrder, setLastOrder } = require('./profiles');
+const { createPayment, markPaid } = require('./payments');
 const M = require('./messages');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -317,7 +318,7 @@ async function handleEditOrder(phoneNumberId, phone) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// שלב 7/14 — סיום טופס פרטי האירוע → יצירת העיצוב
+// שלב 7/14 — סיום טופס פרטי האירוע → תשלום (יצירה ראשונה) / יצירת העיצוב (תיקון)
 // ─────────────────────────────────────────────────────────────
 async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields) {
   const order = getLastOrder(phone);
@@ -325,13 +326,81 @@ async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields)
   console.log(`[handler] event form complete greetingId=${greetingId} correction=${isCorrection}`);
 
   if (isCorrection) {
+    // תיקון בחלון 24 השעות הוא חינמי — אין שלב תשלום, ישר ליצירה מחדש
     await sendText(phoneNumberId, phone, M.CORRECTION_RECEIVED); // שלב 14
-  } else {
-    await sendText(phoneNumberId, phone, M.FORM_DONE); // שלב 8
-    // TODO(payment): שלבים 8–10 — קישור לסליקה והמתנה לאישור החיוב לפני יצירת העיצוב.
+    await generateAndSend(phoneNumberId, phone, greetingId, { ...fields, phone }, { correction: true });
+    return;
   }
 
-  await generateAndSend(phoneNumberId, phone, greetingId, { ...fields, phone }, { correction: isCorrection });
+  await sendText(phoneNumberId, phone, M.FORM_DONE); // שלב 8
+
+  // שלב 9 — שליחת קישור לדף התשלום. יצירת העיצוב תופעל רק לאחר אישור
+  // התשלום (handlePaymentConfirmed). אם התשלום אינו מוגדר בסביבה — ממשיכים
+  // ישר ליצירה כדי לא לתקוע את הבוט.
+  const paymentStarted = await startPaymentStep(phoneNumberId, phone, greetingId, fields);
+  if (!paymentStarted) {
+    await generateAndSend(phoneNumberId, phone, greetingId, { ...fields, phone }, { correction: false });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 9 — יצירת תשלום ממתין ושליחת קישור לדף התשלום (נדרים פלוס)
+// ─────────────────────────────────────────────────────────────
+async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
+  const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (!baseUrl || !process.env.NEDARIM_MOSAD_ID || !process.env.NEDARIM_API_VALID) {
+    console.warn('[handler] payment env not configured (PUBLIC_BASE_URL / NEDARIM_*) — skipping payment step');
+    return false;
+  }
+
+  let greeting = null;
+  try {
+    greeting = await getGreetingById(greetingId);
+  } catch (err) {
+    console.warn('[handler] could not load greeting for payment:', err.message);
+  }
+
+  const amount = String(greeting?.price ?? process.env.PAYMENT_DEFAULT_AMOUNT ?? '').trim();
+  if (!(parseFloat(amount) > 0)) {
+    console.warn(`[handler] no valid price for greeting ${greetingId} — skipping payment step`);
+    return false;
+  }
+
+  const profile = getProfile(phone);
+  const payment = createPayment({
+    phone,
+    phoneNumberId,
+    greetingId,
+    fields,
+    amount,
+    image: greeting?.image || '',
+    customer: { name: profile?.name || '', email: profile?.email || '', phone },
+  });
+
+  const link = `${baseUrl}/pay/${payment.token}`;
+  console.log(`[handler] payment link created token=${payment.token} amount=${amount}`);
+  await sendText(phoneNumberId, phone, M.paymentRequest(amount, link));
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// שלב 10 — אישור תשלום → הודעת המשך + יצירת העיצוב
+// נקרא משני מסלולים: אישור מדף התשלום (צד לקוח) ו-CallBack של נדרים (צד שרת).
+// markPaid אידמפוטנטי, כך שהמסלול השני שמגיע לא יוצר עיצוב כפול.
+// ─────────────────────────────────────────────────────────────
+async function handlePaymentConfirmed(token, transaction, source = 'client') {
+  const payment = markPaid(token, transaction);
+  if (!payment) {
+    console.log(`[handler] payment confirm ignored (unknown/already paid) token=${token} source=${source}`);
+    return false;
+  }
+
+  console.log(`[handler] payment CONFIRMED token=${token} source=${source} amount=${payment.amount}`);
+  const { phoneNumberId, phone, greetingId, fields } = payment;
+
+  await sendText(phoneNumberId, phone, M.PAYMENT_SUCCESS); // שלב 10 — העסקה אושרה
+  await generateAndSend(phoneNumberId, phone, greetingId, { ...fields, phone }, { correction: false });
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -464,4 +533,4 @@ async function handleSessionInput(phone, phoneNumberId, session, text) {
   await handleEventFormComplete(phoneNumberId, phone, greetingId, collected);
 }
 
-module.exports = { handleMessage };
+module.exports = { handleMessage, handlePaymentConfirmed };

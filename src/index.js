@@ -1,9 +1,13 @@
 require('dotenv').config();
 const express = require('express');
-const { handleMessage } = require('./handler');
+const { handleMessage, handlePaymentConfirmed } = require('./handler');
+const { getPayment, isExpired } = require('./payments');
+const { renderPaymentPage, renderStatusPage } = require('./paymentPage');
 
 const app = express();
 app.use(express.json());
+// ה-CallBack של נדרים פלוס מגיע כ-form-urlencoded
+app.use(express.urlencoded({ extended: true }));
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
 const PORT = process.env.PORT || 3000;
@@ -88,6 +92,77 @@ app.post('/webhook', (req, res) => {
   } catch (err) {
     console.error('Error parsing webhook:', err.message);
   }
+});
+
+// ────────────────────────────────────────────────────────────
+// שלב 9 — GET /pay/:token — דף התשלום (אייפרם נדרים פלוס)
+// ────────────────────────────────────────────────────────────
+app.get('/pay/:token', (req, res) => {
+  const payment = getPayment(req.params.token);
+
+  if (!payment) {
+    return res.status(404).send(renderStatusPage({
+      icon: '🔍',
+      title: 'הקישור אינו תקף',
+      body: 'קישור התשלום לא נמצא. חזרו לוואטסאפ והתחילו הזמנה חדשה, ונשמח לעזור.',
+    }));
+  }
+
+  if (payment.status === 'paid') {
+    return res.send(renderStatusPage({
+      icon: '🎉',
+      title: 'התשלום כבר בוצע',
+      body: 'ההזמנה שלכם שולמה ונמצאת בטיפול. העיצוב יישלח אליכם בוואטסאפ ובמייל.',
+    }));
+  }
+
+  if (isExpired(payment)) {
+    return res.status(410).send(renderStatusPage({
+      icon: '⏰',
+      title: 'הקישור פג תוקף',
+      body: 'קישור התשלום היה בתוקף ל-24 שעות. חזרו לוואטסאפ ומלאו את הפרטים מחדש.',
+    }));
+  }
+
+  const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  res.send(renderPaymentPage({
+    payment,
+    mosadId: process.env.NEDARIM_MOSAD_ID,
+    apiValid: process.env.NEDARIM_API_VALID,
+    callbackUrl: `${baseUrl}/nedarim-callback`,
+    confirmUrl: `${baseUrl}/pay/${payment.token}/confirm`,
+  }));
+});
+
+// ────────────────────────────────────────────────────────────
+// שלב 10 — POST /pay/:token/confirm — אישור תשלום מדף התשלום (צד לקוח)
+// ────────────────────────────────────────────────────────────
+app.post('/pay/:token/confirm', (req, res) => {
+  res.sendStatus(200);
+  handlePaymentConfirmed(req.params.token, req.body?.transaction, 'client').catch((err) => {
+    console.error('Error handling client payment confirm:', err.message);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// שלב 10 — POST /nedarim-callback — CallBack שרת-לשרת מנדרים פלוס.
+// גיבוי לאישור צד הלקוח: מבטיח שהעסקה לא תאבד גם אם הלקוח סגר את הדף
+// לפני שהאישור נשלח. הטוקן שלנו נשלח לנדרים כ-Param1.
+// ────────────────────────────────────────────────────────────
+app.post('/nedarim-callback', (req, res) => {
+  res.sendStatus(200);
+  const data = { ...req.query, ...req.body };
+  console.log('[nedarim] callback received:', JSON.stringify(data));
+
+  const token = data.Param1 || data.param1;
+  if (!token) {
+    console.warn('[nedarim] callback without Param1 token — ignoring');
+    return;
+  }
+
+  handlePaymentConfirmed(String(token), data, 'nedarim-callback').catch((err) => {
+    console.error('Error handling nedarim callback:', err.message);
+  });
 });
 
 app.listen(PORT, () => {
