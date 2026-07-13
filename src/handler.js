@@ -356,6 +356,11 @@ async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields)
 // ─────────────────────────────────────────────────────────────
 // שלב 9 — יצירת תשלום ממתין ושליחת קישור לדף התשלום (נדרים פלוס)
 // ─────────────────────────────────────────────────────────────
+
+// !!! מחיר זמני לתקופת הניסויים — כל העיצובים ב-₪1 !!!
+// להחזיר למחרוזת ריקה ('') לפני עלייה לאוויר כדי לחזור למחירי הקטלוג.
+const TEST_AMOUNT_OVERRIDE = '1';
+
 async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
   const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
   if (!baseUrl || !process.env.NEDARIM_MOSAD_ID || !process.env.NEDARIM_API_VALID) {
@@ -370,7 +375,11 @@ async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
     console.warn('[handler] could not load greeting for payment:', err.message);
   }
 
-  const amount = String(greeting?.price ?? process.env.PAYMENT_DEFAULT_AMOUNT ?? '').trim();
+  const catalogAmount = String(greeting?.price ?? process.env.PAYMENT_DEFAULT_AMOUNT ?? '').trim();
+  const amount = TEST_AMOUNT_OVERRIDE || catalogAmount;
+  if (TEST_AMOUNT_OVERRIDE) {
+    console.warn(`[handler] TEST price override active — charging ₪${amount} instead of ₪${catalogAmount}`);
+  }
   if (!(parseFloat(amount) > 0)) {
     console.warn(`[handler] no valid price for greeting ${greetingId} — skipping payment step`);
     return false;
