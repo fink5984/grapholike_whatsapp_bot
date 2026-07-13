@@ -161,7 +161,14 @@ app.get('/pay/:token', (req, res) => {
 // ────────────────────────────────────────────────────────────
 app.post('/pay/:token/confirm', (req, res) => {
   res.sendStatus(200);
-  handlePaymentConfirmed(req.params.token, req.body?.transaction, 'client').catch((err) => {
+  const transaction = req.body?.transaction;
+  // הדף שולח אישור רק על הצלחה, אבל ליתר ביטחון — עסקה עם Status=Error
+  // לעולם לא מאשרת תשלום.
+  if (!transaction || String(transaction.Status || '').toLowerCase() === 'error') {
+    console.warn(`[pay] client confirm rejected token=${req.params.token} status=${transaction?.Status}`);
+    return;
+  }
+  handlePaymentConfirmed(req.params.token, transaction, 'client').catch((err) => {
     console.error('Error handling client payment confirm:', err.message);
   });
 });
@@ -179,6 +186,15 @@ app.post('/nedarim-callback', (req, res) => {
   const token = data.Param1 || data.param1;
   if (!token) {
     console.warn('[nedarim] callback without Param1 token — ignoring');
+    return;
+  }
+
+  // נדרים שולחים CallBack גם על עסקאות שנדחו (Status=Error) — אסור לאשר
+  // אותן. רק סטטוס שאינו Error נחשב תשלום מוצלח, וה-token נשאר פנוי
+  // לניסיון תשלום חוזר מאותו דף.
+  const status = String(data.Status || data.status || '').toLowerCase();
+  if (status === 'error') {
+    console.warn(`[nedarim] transaction DECLINED token=${token} message=${data.Message || ''}`);
     return;
   }
 
