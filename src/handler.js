@@ -262,17 +262,19 @@ async function handleOpenEventForm(phoneNumberId, phone, greetingId) {
 /**
  * פותח את Flow פרטי האירוע, עם נפילה ל-Q&A אם ה-Flow אינו זמין.
  * prefill — מפת param→ערך לפתיחת הטופס מלא (תיקון, שלב 13). מילוי ראשון פותח ריק.
- * תמיד מעבירים data לכל שדה (מחרוזת ריקה כברירת מחדל) כדי לספק את סכמת ה-data.
  */
 async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText, prefill } = {}) {
   try {
     const flowId = await getGreetingFlow(greeting);
-    // init_values prefills the Form; empty strings on first fill, original
-    // order values on correction.
+    // init_values ממלא את הטופס מראש — רק ערכים שבאמת קיימים. שליחת מחרוזת
+    // ריקה לשדה חובה גורמת לוואטסאפ להתייחס אליו כ"מולא וריק" ולהציג את
+    // שגיאת החובה באדום מיד עם פתיחת הטופס.
     const initValues = {};
     for (const field of greeting.content || []) {
       const value = prefill ? prefill[field.param] : undefined;
-      initValues[field.param] = value != null ? String(value) : '';
+      if (value != null && String(value).trim() !== '') {
+        initValues[field.param] = String(value);
+      }
     }
     await sendFlowMessage(phoneNumberId, phone, flowId, {
       bodyText: bodyText || 'מלא את הפרטים לעיצוב',

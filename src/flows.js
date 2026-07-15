@@ -117,9 +117,10 @@ async function uploadAndPublishFlow(authHeader, flowId, flowJson) {
 /**
  * Flow לאיסוף פרטי האירוע (שלב 7).
  * השדות נטענים דינמית מתוך greeting.content.
- * המסך מכריז על סכמת `data` וכל TextInput קשור אליה ב-init-value, כך שבתיקון
+ * המסך מכריז על סכמת `data` וה-Form קשור אליה ב-init-values, כך שבתיקון
  * (שלב 13) אפשר לפתוח מחדש את הטופס מלא בערכים שהוזנו בהזמנה המקורית.
- * ההודעה חייבת להעביר data לכל שדה (מחרוזת ריקה במילוי ראשון).
+ * ההודעה מעבירה ב-init_values רק שדות עם ערך אמיתי — ערך ריק לשדה חובה
+ * גורם להצגת שגיאת החובה באדום מיד עם פתיחת הטופס.
  */
 function buildGreetingFlowJson(greeting) {
   const fields = greeting.content || [];
