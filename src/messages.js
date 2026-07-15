@@ -28,26 +28,18 @@ const welcomeBack = (name) =>
 // גוף הודעת רשימת הקטגוריות
 const CATEGORY_LIST_BODY = 'בחרו את סוג השמחה 👇';
 
-// שלב 3 – לאחר בחירת קטגוריה
-const loadingDesigns = (category) =>
+// שלב 3–4 – גוף הודעת הקרוסלה (הטקסט והסליידר בהודעה אחת)
+const designsCarouselBody = (category) =>
   `מצוין 👍
-מחפשים עבורכם את העיצובים הזמינים ל־${category}.
-🎨 עוד רגע הם כאן...`;
-
-// שלב 4 – לפני הצגת העיצובים
-const DESIGNS_INTRO = `לפניכם מגוון עיצובים לבחירה.
+לפניכם מגוון עיצובים ל־${category}.
 עברו ביניהם ובחרו את העיצוב שמוצא חן בעיניכם 😊`;
 
-// שלב 5 – לאחר בחירת עיצוב (מלווה כפתור "הזנת פרטי האירוע")
-const DESIGN_CHOSEN = `בחירה יפה 👌
-עכשיו נשלים כמה פרטים כדי להתאים אותו בדיוק לשמחה שלכם.`;
-const BTN_FILL_DETAILS = '📝 הזנת פרטי האירוע';
+// שלב 5–7 – נבחר עיצוב → הודעת Flow אחת עם כפתור "מילוי פרטים"
+const FORM_INVITE = `בחירה יפה 👌
+עכשיו נשלים כמה פרטים כדי להתאים אותו בדיוק לשמחה שלכם.
 
-// שלב 6 – לפני הטופס
-const BEFORE_FORM = `רגע לפני שמתחילים...
 הפרטים שתזינו יופיעו בעיצוב בדיוק כפי שייכתבו.
-מומלץ לעבור על השמות, התאריך ושאר הפרטים לפני השליחה.
-כך תקבלו תוצאה מושלמת כבר בפעם הראשונה`;
+מומלץ לעבור על השמות, התאריך ושאר הפרטים לפני השליחה — כך תקבלו תוצאה מושלמת כבר בפעם הראשונה 👇`;
 
 // שלב 8 – סיום מילוי הטופס
 const FORM_DONE = `נהדר 👍
@@ -127,11 +119,8 @@ module.exports = {
   afterDetails,
   welcomeBack,
   CATEGORY_LIST_BODY,
-  loadingDesigns,
-  DESIGNS_INTRO,
-  DESIGN_CHOSEN,
-  BTN_FILL_DETAILS,
-  BEFORE_FORM,
+  designsCarouselBody,
+  FORM_INVITE,
   FORM_DONE,
   PAYMENT_HEADER,
   paymentRequestBody,

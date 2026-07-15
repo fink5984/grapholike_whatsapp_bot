@@ -168,9 +168,10 @@ async function handleMessage(message, contact, phoneNumberId) {
       await sendText(phoneNumberId, phone, M.OPENING);
       await startOnboarding(phoneNumberId, phone);
     } else {
-      // לקוח חוזר — ישר לבחירת קטגוריה
-      await sendText(phoneNumberId, phone, M.welcomeBack(profile.name));
-      await showCategories(phoneNumberId, phone);
+      // לקוח חוזר — ישר לבחירת קטגוריה (ברכה + תפריט בהודעה אחת)
+      await showCategories(phoneNumberId, phone, `${M.welcomeBack(profile.name)}
+
+${M.CATEGORY_LIST_BODY}`);
     }
   }
 }
@@ -186,7 +187,7 @@ async function startOnboarding(phoneNumberId, phone) {
 // ─────────────────────────────────────────────────────────────
 // שלב 3–4 — קטגוריות ועיצובים
 // ─────────────────────────────────────────────────────────────
-async function showCategories(phoneNumberId, phone) {
+async function showCategories(phoneNumberId, phone, bodyText = M.CATEGORY_LIST_BODY) {
   let categories;
   try {
     categories = await getCategories();
@@ -201,12 +202,10 @@ async function showCategories(phoneNumberId, phone) {
     await sendText(phoneNumberId, phone, M.ERR_NO_CATEGORIES);
     return;
   }
-  await sendCategoryList(phoneNumberId, phone, M.CATEGORY_LIST_BODY, categories);
+  await sendCategoryList(phoneNumberId, phone, bodyText, categories);
 }
 
 async function handleCategorySelected(phoneNumberId, phone, categoryId, categoryTitle) {
-  await sendText(phoneNumberId, phone, M.loadingDesigns(categoryTitle));
-
   let greetings;
   try {
     greetings = await getGreetingsByCategory(categoryId);
@@ -221,9 +220,9 @@ async function handleCategorySelected(phoneNumberId, phone, categoryId, category
     return;
   }
 
-  await sendText(phoneNumberId, phone, M.DESIGNS_INTRO);
+  // הטקסט והסליידר נשלחים כהודעת קרוסלה אחת
   try {
-    await sendGreetingCarousel(phoneNumberId, phone, categoryTitle, greetings);
+    await sendGreetingCarousel(phoneNumberId, phone, categoryTitle, greetings, M.designsCarouselBody(categoryTitle));
   } catch (carouselErr) {
     console.warn('[handler] carousel failed, falling back to list:', carouselErr.message);
     await sendGreetingList(phoneNumberId, phone, categoryTitle, greetings);
@@ -231,7 +230,8 @@ async function handleCategorySelected(phoneNumberId, phone, categoryId, category
 }
 
 // ─────────────────────────────────────────────────────────────
-// שלב 5 — נבחר עיצוב → כפתור "הזנת פרטי האירוע"
+// שלב 5–7 — נבחר עיצוב → הודעת Flow אחת עם כפתור "מילוי פרטים"
+// (במקום כפתור ביניים "הזנת פרטי האירוע" + הודעת "רגע לפני שמתחילים")
 // ─────────────────────────────────────────────────────────────
 async function handleDesignChosen(phoneNumberId, phone, greetingId) {
   const greeting = await getGreetingById(greetingId);
@@ -239,24 +239,12 @@ async function handleDesignChosen(phoneNumberId, phone, greetingId) {
     await sendText(phoneNumberId, phone, M.ERR_LOAD_GREETING);
     return;
   }
-  await sendButtons(phoneNumberId, phone, M.DESIGN_CHOSEN, [
-    { id: `open_event_form_${greetingId}`, title: M.BTN_FILL_DETAILS },
-  ]);
+  await openGreetingForm(phoneNumberId, phone, greeting, { bodyText: M.FORM_INVITE });
 }
 
-// ─────────────────────────────────────────────────────────────
-// שלב 6–7 — "לפני שמתחילים" + פתיחת טופס פרטי האירוע
-// ─────────────────────────────────────────────────────────────
+// תאימות לאחור — כפתורי "הזנת פרטי האירוע" שנשלחו בהודעות ישנות
 async function handleOpenEventForm(phoneNumberId, phone, greetingId) {
-  const greeting = await getGreetingById(greetingId);
-  if (!greeting || !greeting.content || greeting.content.length === 0) {
-    await sendText(phoneNumberId, phone, M.ERR_LOAD_GREETING);
-    return;
-  }
-  await sendText(phoneNumberId, phone, M.BEFORE_FORM);
-  await openGreetingForm(phoneNumberId, phone, greeting, {
-    bodyText: 'למילוי פרטי האירוע לחצו על הכפתור 👇',
-  });
+  return handleDesignChosen(phoneNumberId, phone, greetingId);
 }
 
 /**
@@ -550,8 +538,10 @@ async function handleSessionInput(phone, phoneNumberId, session, text) {
     const name = (session.collected.name || '').trim() || 'לקוח';
     deleteSession(phone);
     setProfile(phone, { name, email: text.trim() });
-    await sendText(phoneNumberId, phone, M.afterDetails(name));
-    await showCategories(phoneNumberId, phone);
+    // הודעת התודה והתפריט מאוחדים להודעה אחת
+    await showCategories(phoneNumberId, phone, `${M.afterDetails(name)}
+
+${M.CATEGORY_LIST_BODY}`);
     return;
   }
 

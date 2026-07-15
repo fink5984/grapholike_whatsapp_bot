@@ -201,7 +201,7 @@ function sendCategoryList(phoneNumberId, to, bodyText, categories) {
  * שלח קרוסלה של ברכות
  * greetings: [{ id, image, title }]
  */
-function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
+function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings, bodyText) {
   const cards = greetings
     .slice(0, 10)
     .map((g, index) => {
@@ -245,7 +245,7 @@ function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings) {
     type: 'interactive',
     interactive: {
       type: 'carousel',
-      body: { text: `עיצובים לקטגוריה: ${categoryTitle}\nבחר את העיצוב המועדף:` },
+      body: { text: bodyText || `עיצובים לקטגוריה: ${categoryTitle}\nבחר את העיצוב המועדף:` },
       action: { cards },
     },
   });
