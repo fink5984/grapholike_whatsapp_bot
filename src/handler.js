@@ -14,7 +14,7 @@ const {
 } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
 const { getGreetingFlow, getGreetingEditFlow } = require('./flows');
-const { getProfile, setProfile, getLastOrder, setLastOrder } = require('./profiles');
+const { getProfile, setProfile, getLastOrder, setLastOrder, recordOrder } = require('./profiles');
 const { createPayment, markPaid } = require('./payments');
 const M = require('./messages');
 
@@ -162,7 +162,7 @@ async function handleMessage(message, contact, phoneNumberId) {
 
   // ── הודעת טקסט רגילה ──
   if (type === 'text') {
-    const profile = getProfile(phone);
+    const profile = await getProfile(phone);
     if (!profile) {
       // שלב 1 — פתיחה + איסוף שם ומייל
       await sendText(phoneNumberId, phone, M.OPENING);
@@ -300,7 +300,7 @@ async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText, pref
 // שלב 13 — פתיחת תיקון
 // ─────────────────────────────────────────────────────────────
 async function handleEditOrder(phoneNumberId, phone) {
-  const order = getLastOrder(phone);
+  const order = await getLastOrder(phone);
   if (!order || !order.greetingId) {
     await sendText(phoneNumberId, phone, 'לא נמצאה הזמנה אחרונה לתיקון.');
     return;
@@ -316,7 +316,7 @@ async function handleEditOrder(phoneNumberId, phone) {
     return;
   }
 
-  setLastOrder(phone, { editing: true });
+  await setLastOrder(phone, { editing: true });
   await openGreetingForm(phoneNumberId, phone, greeting, {
     bodyText: 'הפרטים כבר מלאים — ערכו את מה שצריך ושלחו שוב 👇',
     prefill: order.fields, // פתיחת הטופס מלא בערכים מההזמנה המקורית
@@ -327,7 +327,7 @@ async function handleEditOrder(phoneNumberId, phone) {
 // שלב 7/14 — סיום טופס פרטי האירוע → תשלום (יצירה ראשונה) / יצירת העיצוב (תיקון)
 // ─────────────────────────────────────────────────────────────
 async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields) {
-  const order = getLastOrder(phone);
+  const order = await getLastOrder(phone);
   const isCorrection = !!order?.editing;
   console.log(`[handler] event form complete greetingId=${greetingId} correction=${isCorrection}`);
 
@@ -381,8 +381,8 @@ async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
     return false;
   }
 
-  const profile = getProfile(phone);
-  const payment = createPayment({
+  const profile = await getProfile(phone);
+  const payment = await createPayment({
     phone,
     phoneNumberId,
     greetingId,
@@ -422,7 +422,7 @@ async function handlePaymentConfirmed(token, transaction, source = 'client') {
     return false;
   }
 
-  const payment = markPaid(token, transaction);
+  const payment = await markPaid(token, transaction);
   if (!payment) {
     console.log(`[handler] payment confirm ignored (unknown/already paid) token=${token} source=${source}`);
     return false;
@@ -440,7 +440,7 @@ async function handlePaymentConfirmed(token, transaction, source = 'client') {
 // שלב 11–12 / 15 — יצירת העיצוב ושליחתו
 // ─────────────────────────────────────────────────────────────
 async function generateAndSend(phoneNumberId, phone, greetingId, fields, { correction = false } = {}) {
-  const profile = getProfile(phone);
+  const profile = await getProfile(phone);
 
   // שלב 11 — הודעות התקדמות (רק ביצירה ראשונה; בתיקון כבר נשלחה הודעת שלב 14)
   if (!correction) {
@@ -451,7 +451,7 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
   }
 
   try {
-    const order = getLastOrder(phone);
+    const order = await getLastOrder(phone);
     // תיקון (שלב 13) מרנדר מחדש את ההזמנה הקיימת דרך /update עם order_id;
     // יצירה ראשונה יוצרת הזמנה חדשה דרך /create עם post_id.
     const orderId = order?.orderId;
@@ -505,13 +505,15 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
     // שמירת ההזמנה לצורך חלון התיקונים (שלב 13). ביצירה ראשונה קובעים createdAt
     // ושומרים את order_id שהוחזר, כדי שתיקון עתידי יקרא ל-/update על אותה הזמנה.
     const newOrderId = useUpdate ? orderId : extractOrderId(data, rawFileUrl);
-    setLastOrder(phone, {
+    await setLastOrder(phone, {
       greetingId,
       fields,
       editing: false,
       ...(newOrderId ? { orderId: newOrderId } : {}),
       ...(correction ? {} : { createdAt: Date.now() }),
     });
+    // היסטוריית הזמנות (DB) — שורה לכל יצירה/תיקון שהושלמו
+    await recordOrder(phone, { orderId: newOrderId, greetingId, fields, correction });
 
     if (!correction) {
       await sendText(phoneNumberId, phone, M.EMAIL_NOTE); // שלב 12 — הודעת מייל
@@ -543,7 +545,7 @@ async function handleSessionInput(phone, phoneNumberId, session, text) {
     }
     const name = (session.collected.name || '').trim() || 'לקוח';
     deleteSession(phone);
-    setProfile(phone, { name, email: text.trim() });
+    await setProfile(phone, { name, email: text.trim() });
     // הודעת התודה והתפריט מאוחדים להודעה אחת
     await showCategories(phoneNumberId, phone, `${M.afterDetails(name)}
 

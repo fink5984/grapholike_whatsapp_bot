@@ -47,6 +47,8 @@ function helperTextForField(field) {
 //                          ${data.init_values}; always gets real values.
 const FLOW_NAME_VERSION = 'v8';
 
+const db = require('./db');
+
 async function findExistingFlowId(authHeader, wabaId, keyPrefix) {
   const prefix = `${keyPrefix}_${FLOW_NAME_VERSION}`;
 
@@ -208,6 +210,34 @@ async function getOrCreateFlowByKey(key, flowJson) {
     return flowCache.get(key);
   }
 
+  // קאש מתמשך ב-DB — חוסך אחרי כל פריסה את איתור ה-Flow, ההעלאה והפרסום מחדש
+  const dbKey = `${key}_${FLOW_NAME_VERSION}`;
+  if (await db.ready()) {
+    try {
+      const { rows } = await db.query('SELECT flow_id FROM flows WHERE key = $1', [dbKey]);
+      if (rows[0]) {
+        console.log(`[flows] Using DB-cached flow ${rows[0].flow_id} for ${key}`);
+        flowCache.set(key, rows[0].flow_id);
+        return rows[0].flow_id;
+      }
+    } catch (err) {
+      console.warn('[flows] DB cache lookup failed:', err.message);
+    }
+  }
+
+  const saveToDb = async (flowId) => {
+    if (!(await db.ready())) return;
+    try {
+      await db.query(
+        `INSERT INTO flows (key, flow_id) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET flow_id = EXCLUDED.flow_id, updated_at = now()`,
+        [dbKey, String(flowId)]
+      );
+    } catch (err) {
+      console.warn('[flows] DB cache save failed:', err.message);
+    }
+  };
+
   const authHeader = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
   let existingFlowId = null;
@@ -221,6 +251,7 @@ async function getOrCreateFlowByKey(key, flowJson) {
     console.log(`[flows] Reusing existing flow ${existingFlowId} for ${key}`);
     await uploadAndPublishFlow(authHeader, existingFlowId, flowJson);
     flowCache.set(key, existingFlowId);
+    await saveToDb(existingFlowId);
     return existingFlowId;
   }
 
@@ -231,6 +262,7 @@ async function getOrCreateFlowByKey(key, flowJson) {
   await uploadAndPublishFlow(authHeader, flowId, flowJson);
 
   flowCache.set(key, flowId);
+  await saveToDb(flowId);
   return flowId;
 }
 

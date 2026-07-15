@@ -121,9 +121,9 @@ app.get('/debug/catalog', async (req, res) => {
 // בלי לעבור את כל זרימת הבוט. מוגן בטוקן האימות של ה-webhook.
 // /debug/test-payment?token=<WEBHOOK_VERIFY_TOKEN>
 // ────────────────────────────────────────────────────────────
-app.get('/debug/test-payment', (req, res) => {
+app.get('/debug/test-payment', async (req, res) => {
   if (req.query.token !== VERIFY_TOKEN) return res.sendStatus(403);
-  const payment = createPayment({
+  const payment = await createPayment({
     phone: '972523413357',
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
     greetingId: 384483,
@@ -139,8 +139,8 @@ app.get('/debug/test-payment', (req, res) => {
 // ────────────────────────────────────────────────────────────
 // שלב 9 — GET /pay/:token — דף התשלום (אייפרם נדרים פלוס)
 // ────────────────────────────────────────────────────────────
-app.get('/pay/:token', (req, res) => {
-  const payment = getPayment(req.params.token);
+app.get('/pay/:token', async (req, res) => {
+  const payment = await getPayment(req.params.token);
 
   if (!payment) {
     return res.status(404).send(renderStatusPage({
