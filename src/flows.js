@@ -37,13 +37,15 @@ function helperTextForField(field) {
 }
 
 // Bump this version when flow JSON structure changes to force fresh flows.
-// v7: two screens. GREETING_FORM is the plain first-fill screen with no data
-//     schema — sending init_values full of empty strings marked every required
-//     field as touched (red errors on open), and sending an empty init_values
-//     object made the flow fail to open entirely. GREETING_FORM_EDIT keeps the
-//     Form-level `init-values` binding for the correction step (13), which
-//     always has real values for every field.
-const FLOW_NAME_VERSION = 'v7';
+// v8: two SEPARATE single-screen flows per greeting (a second screen in one
+//     flow fails validation with INVALID_ROUTING_MODEL — all screens must be
+//     connected by navigate actions):
+//     greeting_<id>      — first fill, no data schema, clean form. Empty-string
+//                          init values painted every required field red, and an
+//                          empty init_values object failed to open the flow.
+//     greeting_edit_<id> — correction (step 13), Form init-values bound to
+//                          ${data.init_values}; always gets real values.
+const FLOW_NAME_VERSION = 'v8';
 
 async function findExistingFlowId(authHeader, wabaId, keyPrefix) {
   const prefix = `${keyPrefix}_${FLOW_NAME_VERSION}`;
@@ -120,12 +122,11 @@ async function uploadAndPublishFlow(authHeader, flowId, flowJson) {
 /**
  * Flow לאיסוף פרטי האירוע (שלב 7).
  * השדות נטענים דינמית מתוך greeting.content.
- * שני מסכים זהים בתוכן:
- * GREETING_FORM      — מילוי ראשון. בלי סכמת data ובלי init-values (טופס נקי).
- * GREETING_FORM_EDIT — תיקון (שלב 13). ה-Form קשור ל-${data.init_values}
- *                      ונפתח מלא בערכים שהוזנו בהזמנה המקורית.
+ * מסך יחיד (GREETING_FORM). withPrefill=false — טופס נקי למילוי ראשון;
+ * withPrefill=true — גרסת התיקון (שלב 13): ה-Form קשור ל-${data.init_values}
+ * ונפתח מלא בערכים שהוזנו בהזמנה המקורית.
  */
-function buildGreetingFlowJson(greeting) {
+function buildGreetingFlowJson(greeting, { withPrefill = false } = {}) {
   const fields = greeting.content || [];
 
   // Example init-values object for the edit screen's data schema. Values are
@@ -162,50 +163,34 @@ function buildGreetingFlowJson(greeting) {
     return children;
   };
 
-  return {
-    version: '6.0',
-    screens: [
-      {
-        id: 'GREETING_FORM',
-        title: 'פרטים לברכה',
-        terminal: true,
-        success: true,
-        layout: {
-          type: 'SingleColumnLayout',
-          children: [
-            {
-              type: 'Form',
-              name: 'greeting_form',
-              children: buildFormChildren(),
-            },
-          ],
-        },
-      },
-      {
-        id: 'GREETING_FORM_EDIT',
-        title: 'פרטים לברכה',
-        terminal: true,
-        success: true,
-        data: {
-          init_values: {
-            type: 'object',
-            __example__: exampleInitValues,
-          },
-        },
-        layout: {
-          type: 'SingleColumnLayout',
-          children: [
-            {
-              type: 'Form',
-              name: 'greeting_form',
-              'init-values': '${data.init_values}',
-              children: buildFormChildren(),
-            },
-          ],
-        },
-      },
-    ],
+  const form = {
+    type: 'Form',
+    name: 'greeting_form',
+    children: buildFormChildren(),
   };
+
+  const screen = {
+    id: 'GREETING_FORM',
+    title: 'פרטים לברכה',
+    terminal: true,
+    success: true,
+    layout: {
+      type: 'SingleColumnLayout',
+      children: [form],
+    },
+  };
+
+  if (withPrefill) {
+    screen.data = {
+      init_values: {
+        type: 'object',
+        __example__: exampleInitValues,
+      },
+    };
+    form['init-values'] = '${data.init_values}';
+  }
+
+  return { version: '6.0', screens: [screen] };
 }
 
 /**
@@ -253,4 +238,12 @@ function getGreetingFlow(greeting) {
   return getOrCreateFlowByKey(`greeting_${greeting.id}`, buildGreetingFlowJson(greeting));
 }
 
-module.exports = { getGreetingFlow };
+// Flow נפרד לתיקון — נוצר רק כשלקוח מבקש תיקון בפעם הראשונה לעיצוב הזה
+function getGreetingEditFlow(greeting) {
+  return getOrCreateFlowByKey(
+    `greeting_edit_${greeting.id}`,
+    buildGreetingFlowJson(greeting, { withPrefill: true })
+  );
+}
+
+module.exports = { getGreetingFlow, getGreetingEditFlow };

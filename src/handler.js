@@ -13,7 +13,7 @@ const {
   sendCtaUrl,
 } = require('./whatsapp');
 const { getSession, setSession, deleteSession } = require('./sessions');
-const { getGreetingFlow } = require('./flows');
+const { getGreetingFlow, getGreetingEditFlow } = require('./flows');
 const { getProfile, setProfile, getLastOrder, setLastOrder } = require('./profiles');
 const { createPayment, markPaid } = require('./payments');
 const M = require('./messages');
@@ -258,11 +258,11 @@ async function handleOpenEventForm(phoneNumberId, phone, greetingId) {
  */
 async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText, prefill } = {}) {
   try {
-    const flowId = await getGreetingFlow(greeting);
-    // מילוי ראשון — מסך נקי בלי data (שליחת init_values ריק מפילה את פתיחת
-    // הטופס, ומחרוזות ריקות צובעות את שדות החובה באדום). תיקון — מסך ה-EDIT,
-    // שנפתח מלא בערכי ההזמנה המקורית דרך init_values.
+    // מילוי ראשון — Flow עם טופס נקי, בלי data בכלל (שליחת init_values ריק
+    // מפילה את פתיחת הטופס, ומחרוזות ריקות צובעות שדות חובה באדום).
+    // תיקון — Flow נפרד שנפתח מלא בערכי ההזמנה המקורית דרך init_values.
     const usePrefill = prefill && Object.keys(prefill).length > 0;
+    const flowId = usePrefill ? await getGreetingEditFlow(greeting) : await getGreetingFlow(greeting);
     let initValues = null;
     if (usePrefill) {
       initValues = {};
@@ -274,7 +274,7 @@ async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText, pref
       bodyText: bodyText || 'מלא את הפרטים לעיצוב',
       headerText: 'פרטי האירוע',
       cta: 'מילוי פרטים',
-      screen: usePrefill ? 'GREETING_FORM_EDIT' : 'GREETING_FORM',
+      screen: 'GREETING_FORM',
       data: usePrefill ? { init_values: initValues } : undefined,
     });
   } catch (err) {
