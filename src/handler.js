@@ -357,9 +357,9 @@ async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields)
 // שלב 9 — יצירת תשלום ממתין ושליחת קישור לדף התשלום (נדרים פלוס)
 // ─────────────────────────────────────────────────────────────
 
-// !!! מחיר זמני לתקופת הניסויים — כל העיצובים ב-₪5 !!!
+// !!! מחיר זמני לתקופת הניסויים — כל העיצובים ב-₪1 !!!
 // להחזיר למחרוזת ריקה ('') לפני עלייה לאוויר כדי לחזור למחירי הקטלוג.
-const TEST_AMOUNT_OVERRIDE = '5';
+const TEST_AMOUNT_OVERRIDE = '1';
 
 async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
   const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -420,6 +420,12 @@ async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
 // markPaid אידמפוטנטי, כך שהמסלול השני שמגיע לא יוצר עיצוב כפול.
 // ─────────────────────────────────────────────────────────────
 async function handlePaymentConfirmed(token, transaction, source = 'client') {
+  // הגנה נוספת (מעבר לסינון בראוטים): לעולם לא לאשר עסקה שסטטוסה שגיאה.
+  if (String(transaction?.Status || '').toLowerCase() === 'error') {
+    console.warn(`[handler] payment confirm REJECTED — transaction status=Error token=${token} source=${source}`);
+    return false;
+  }
+
   const payment = markPaid(token, transaction);
   if (!payment) {
     console.log(`[handler] payment confirm ignored (unknown/already paid) token=${token} source=${source}`);
