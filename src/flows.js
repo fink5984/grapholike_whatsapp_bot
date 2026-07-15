@@ -37,10 +37,13 @@ function helperTextForField(field) {
 }
 
 // Bump this version when flow JSON structure changes to force fresh flows.
-// v6: prefill via the Form-level `init-values` map bound to ${data.init_values}
-//     (per-input `init-value` is rejected by Flow JSON 6.0). Lets the correction
-//     step (13) reopen the flow pre-filled with the original order's values.
-const FLOW_NAME_VERSION = 'v6';
+// v7: two screens. GREETING_FORM is the plain first-fill screen with no data
+//     schema — sending init_values full of empty strings marked every required
+//     field as touched (red errors on open), and sending an empty init_values
+//     object made the flow fail to open entirely. GREETING_FORM_EDIT keeps the
+//     Form-level `init-values` binding for the correction step (13), which
+//     always has real values for every field.
+const FLOW_NAME_VERSION = 'v7';
 
 async function findExistingFlowId(authHeader, wabaId, keyPrefix) {
   const prefix = `${keyPrefix}_${FLOW_NAME_VERSION}`;
@@ -117,44 +120,47 @@ async function uploadAndPublishFlow(authHeader, flowId, flowJson) {
 /**
  * Flow לאיסוף פרטי האירוע (שלב 7).
  * השדות נטענים דינמית מתוך greeting.content.
- * המסך מכריז על סכמת `data` וה-Form קשור אליה ב-init-values, כך שבתיקון
- * (שלב 13) אפשר לפתוח מחדש את הטופס מלא בערכים שהוזנו בהזמנה המקורית.
- * ההודעה מעבירה ב-init_values רק שדות עם ערך אמיתי — ערך ריק לשדה חובה
- * גורם להצגת שגיאת החובה באדום מיד עם פתיחת הטופס.
+ * שני מסכים זהים בתוכן:
+ * GREETING_FORM      — מילוי ראשון. בלי סכמת data ובלי init-values (טופס נקי).
+ * GREETING_FORM_EDIT — תיקון (שלב 13). ה-Form קשור ל-${data.init_values}
+ *                      ונפתח מלא בערכים שהוזנו בהזמנה המקורית.
  */
 function buildGreetingFlowJson(greeting) {
   const fields = greeting.content || [];
 
-  // Example init-values object for the screen data schema. Values are supplied
-  // at runtime via the flow message's flow_action_payload.data.init_values.
+  // Example init-values object for the edit screen's data schema. Values are
+  // supplied at runtime via the flow message's flow_action_payload.data.
   const exampleInitValues = {};
   for (const field of fields) {
     exampleInitValues[field.param] = String(field.name || field.param || '');
   }
 
-  const formChildren = fields.map((field) => ({
-    type: 'TextInput',
-    label: String(field.name || field.param || 'שדה'),
-    name: field.param,
-    'input-type': field.param === 'phone' ? 'phone' : 'text',
-    'helper-text': helperTextForField(field),
-    required: true,
-  }));
+  const buildFormChildren = () => {
+    const children = fields.map((field) => ({
+      type: 'TextInput',
+      label: String(field.name || field.param || 'שדה'),
+      name: field.param,
+      'input-type': field.param === 'phone' ? 'phone' : 'text',
+      'helper-text': helperTextForField(field),
+      required: true,
+    }));
 
-  // Pass each form input value back to the bot via ${form.<name>} data-binding.
-  const payload = { greeting_id: String(greeting.id) };
-  for (const field of fields) {
-    payload[field.param] = `\${form.${field.param}}`;
-  }
+    // Pass each form input value back to the bot via ${form.<name>} data-binding.
+    const payload = { greeting_id: String(greeting.id) };
+    for (const field of fields) {
+      payload[field.param] = `\${form.${field.param}}`;
+    }
 
-  formChildren.push({
-    type: 'Footer',
-    label: 'שלח ברכה',
-    'on-click-action': {
-      name: 'complete',
-      payload,
-    },
-  });
+    children.push({
+      type: 'Footer',
+      label: 'שלח ברכה',
+      'on-click-action': {
+        name: 'complete',
+        payload,
+      },
+    });
+    return children;
+  };
 
   return {
     version: '6.0',
@@ -164,8 +170,22 @@ function buildGreetingFlowJson(greeting) {
         title: 'פרטים לברכה',
         terminal: true,
         success: true,
-        // init_values prefills the form; the bot passes it in every flow message
-        // (empty strings on first fill, original values on correction).
+        layout: {
+          type: 'SingleColumnLayout',
+          children: [
+            {
+              type: 'Form',
+              name: 'greeting_form',
+              children: buildFormChildren(),
+            },
+          ],
+        },
+      },
+      {
+        id: 'GREETING_FORM_EDIT',
+        title: 'פרטים לברכה',
+        terminal: true,
+        success: true,
         data: {
           init_values: {
             type: 'object',
@@ -179,7 +199,7 @@ function buildGreetingFlowJson(greeting) {
               type: 'Form',
               name: 'greeting_form',
               'init-values': '${data.init_values}',
-              children: formChildren,
+              children: buildFormChildren(),
             },
           ],
         },

@@ -29,7 +29,14 @@ async function fetchCatalog() {
 
   try {
     const { data } = await axios.get(`${BASE_URL}/catalog`, { headers, timeout: 20000 });
-    const arr = Array.isArray(data) ? data : Object.values(data || {});
+    // ה-API מחזיר מערך קטגוריות. כל צורה אחרת (למשל דף HTML של חסימת WAF
+    // שהגיע עם סטטוס 200) היא תשובה פגומה — אסור להמיר אותה בשקט או לשמור
+    // אותה בקאש, אחרת הבוט עונה "לא נמצאו עיצובים" עד שהקאש יפוג.
+    const arr = Array.isArray(data) ? data : (!data || typeof data !== 'object' ? null : Object.values(data));
+    if (!arr || arr.some((item) => !item || typeof item !== 'object')) {
+      const snippet = (typeof data === 'string' ? data : JSON.stringify(data || '')).slice(0, 300);
+      throw new Error(`catalog returned unexpected payload: ${snippet}`);
+    }
     catalogCache = { data: arr, fetchedAt: now };
     return arr;
   } catch (err) {

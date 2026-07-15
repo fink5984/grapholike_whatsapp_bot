@@ -234,7 +234,12 @@ async function handleCategorySelected(phoneNumberId, phone, categoryId, category
 // (במקום כפתור ביניים "הזנת פרטי האירוע" + הודעת "רגע לפני שמתחילים")
 // ─────────────────────────────────────────────────────────────
 async function handleDesignChosen(phoneNumberId, phone, greetingId) {
-  const greeting = await getGreetingById(greetingId);
+  let greeting = null;
+  try {
+    greeting = await getGreetingById(greetingId);
+  } catch (err) {
+    console.error('[handler] getGreetingById failed:', err.message);
+  }
   if (!greeting || !greeting.content || greeting.content.length === 0) {
     await sendText(phoneNumberId, phone, M.ERR_LOAD_GREETING);
     return;
@@ -254,22 +259,23 @@ async function handleOpenEventForm(phoneNumberId, phone, greetingId) {
 async function openGreetingForm(phoneNumberId, phone, greeting, { bodyText, prefill } = {}) {
   try {
     const flowId = await getGreetingFlow(greeting);
-    // init_values ממלא את הטופס מראש — רק ערכים שבאמת קיימים. שליחת מחרוזת
-    // ריקה לשדה חובה גורמת לוואטסאפ להתייחס אליו כ"מולא וריק" ולהציג את
-    // שגיאת החובה באדום מיד עם פתיחת הטופס.
-    const initValues = {};
-    for (const field of greeting.content || []) {
-      const value = prefill ? prefill[field.param] : undefined;
-      if (value != null && String(value).trim() !== '') {
-        initValues[field.param] = String(value);
+    // מילוי ראשון — מסך נקי בלי data (שליחת init_values ריק מפילה את פתיחת
+    // הטופס, ומחרוזות ריקות צובעות את שדות החובה באדום). תיקון — מסך ה-EDIT,
+    // שנפתח מלא בערכי ההזמנה המקורית דרך init_values.
+    const usePrefill = prefill && Object.keys(prefill).length > 0;
+    let initValues = null;
+    if (usePrefill) {
+      initValues = {};
+      for (const field of greeting.content || []) {
+        initValues[field.param] = prefill[field.param] != null ? String(prefill[field.param]) : '';
       }
     }
     await sendFlowMessage(phoneNumberId, phone, flowId, {
       bodyText: bodyText || 'מלא את הפרטים לעיצוב',
       headerText: 'פרטי האירוע',
       cta: 'מילוי פרטים',
-      screen: 'GREETING_FORM',
-      data: { init_values: initValues },
+      screen: usePrefill ? 'GREETING_FORM_EDIT' : 'GREETING_FORM',
+      data: usePrefill ? { init_values: initValues } : undefined,
     });
   } catch (err) {
     console.error('[handler] greeting flow failed, Q&A fallback:', err.message, err.response?.data);
