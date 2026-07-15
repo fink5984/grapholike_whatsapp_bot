@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const { handleMessage, handlePaymentConfirmed } = require('./handler');
-const { getPayment, isExpired } = require('./payments');
+const { createPayment, getPayment, isExpired } = require('./payments');
 const { renderPaymentPage, renderStatusPage } = require('./paymentPage');
 const { getCategories } = require('./catalog');
 
@@ -117,6 +117,26 @@ app.get('/debug/catalog', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
+// GET /debug/test-payment — יצירת קישור תשלום לדוגמה לבדיקות דף התשלום,
+// בלי לעבור את כל זרימת הבוט. מוגן בטוקן האימות של ה-webhook.
+// /debug/test-payment?token=<WEBHOOK_VERIFY_TOKEN>
+// ────────────────────────────────────────────────────────────
+app.get('/debug/test-payment', (req, res) => {
+  if (req.query.token !== VERIFY_TOKEN) return res.sendStatus(403);
+  const payment = createPayment({
+    phone: '972523413357',
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    greetingId: 384483,
+    fields: { name: 'בדיקה', parsha: 'בדיקה' },
+    amount: '5',
+    image: '',
+    customer: { name: 'דוד פינק', email: 'fink5984@gmail.com', phone: '972523413357' },
+  });
+  const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  res.json({ ok: true, link: `${baseUrl}/pay/${payment.token}` });
+});
+
+// ────────────────────────────────────────────────────────────
 // שלב 9 — GET /pay/:token — דף התשלום (אייפרם נדרים פלוס)
 // ────────────────────────────────────────────────────────────
 app.get('/pay/:token', (req, res) => {
@@ -161,7 +181,14 @@ app.get('/pay/:token', (req, res) => {
 // ────────────────────────────────────────────────────────────
 app.post('/pay/:token/confirm', (req, res) => {
   res.sendStatus(200);
-  handlePaymentConfirmed(req.params.token, req.body?.transaction, 'client').catch((err) => {
+  const transaction = req.body?.transaction;
+  // הדף שולח אישור רק על הצלחה, אבל ליתר ביטחון — עסקה עם Status=Error
+  // לעולם לא מאשרת תשלום.
+  if (!transaction || String(transaction.Status || '').toLowerCase() === 'error') {
+    console.warn(`[pay] client confirm rejected token=${req.params.token} status=${transaction?.Status}`);
+    return;
+  }
+  handlePaymentConfirmed(req.params.token, transaction, 'client').catch((err) => {
     console.error('Error handling client payment confirm:', err.message);
   });
 });
@@ -182,9 +209,12 @@ app.post('/nedarim-callback', (req, res) => {
     return;
   }
 
-  // נדרים שולחים CallBack גם על עסקאות שנדחו (Status=Error) — לאשר רק הצלחה!
-  if (String(data.Status).toLowerCase() !== 'ok') {
-    console.warn(`[nedarim] callback status=${data.Status} (${data.Message || ''}) — transaction NOT approved, ignoring`);
+  // נדרים שולחים CallBack גם על עסקאות שנדחו (Status=Error) — אסור לאשר
+  // אותן. רק סטטוס שאינו Error נחשב תשלום מוצלח, וה-token נשאר פנוי
+  // לניסיון תשלום חוזר מאותו דף.
+  const status = String(data.Status || data.status || '').toLowerCase();
+  if (status === 'error') {
+    console.warn(`[nedarim] transaction DECLINED token=${token} message=${data.Message || ''}`);
     return;
   }
 

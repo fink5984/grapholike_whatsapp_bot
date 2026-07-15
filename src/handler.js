@@ -357,9 +357,9 @@ async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields)
 // שלב 9 — יצירת תשלום ממתין ושליחת קישור לדף התשלום (נדרים פלוס)
 // ─────────────────────────────────────────────────────────────
 
-// !!! מחיר זמני לתקופת הניסויים — כל העיצובים ב-₪1 !!!
+// !!! מחיר זמני לתקופת הניסויים — כל העיצובים ב-₪5 !!!
 // להחזיר למחרוזת ריקה ('') לפני עלייה לאוויר כדי לחזור למחירי הקטלוג.
-const TEST_AMOUNT_OVERRIDE = '1';
+const TEST_AMOUNT_OVERRIDE = '5';
 
 async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
   const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
