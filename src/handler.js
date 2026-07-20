@@ -525,7 +525,10 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
     await recordOrder(phone, { orderId: newOrderId, greetingId, fields, correction });
 
     if (!correction) {
-      await sendText(phoneNumberId, phone, M.EMAIL_NOTE); // שלב 12 — הודעת מייל
+      // עיכוב קצר לפני הודעת התיקונים — התמונה כבר נשלחה ל-WhatsApp, אבל
+      // מדיה לוקחת להם יותר זמן להגיע בפועל למכשיר מהודעת טקסט; בלי זה
+      // הודעת הטקסט עלולה להציג ללקוח לפני התמונה עצמה.
+      await sleep(2000);
       await sendButtons(phoneNumberId, phone, M.CORRECTIONS_OFFER, [
         { id: 'edit_order', title: M.BTN_EDIT_ORDER },
       ]); // שלב 13
