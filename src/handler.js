@@ -478,7 +478,8 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
     } else {
       endpoint = `${process.env.CATALOG_BASE_URL}/create`;
       body = { post_id: greetingId, ...fields, generate_pdf: true };
-      if (profile?.email) body.email = profile.email;
+      // ה-backend מצפה ל-mail (לא email) כדי לשלוח את המייל בפועל — ר' תיעוד ב-/update.
+      if (profile?.email) body.mail = profile.email;
       if (profile?.name) body.customer_name = profile.name;
     }
 
