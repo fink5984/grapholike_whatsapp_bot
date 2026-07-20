@@ -244,6 +244,10 @@ async function handleDesignChosen(phoneNumberId, phone, greetingId) {
     await sendText(phoneNumberId, phone, M.ERR_LOAD_GREETING);
     return;
   }
+  // בחירת עיצוב היא תמיד התחלה של הזמנה חדשה — מבטלים דגל "editing" שאולי
+  // נשאר תקוע מתיקון קודם שננטש (לחיצה על "תיקון ההזמנה" בלי לשלוח את הטופס),
+  // אחרת מילוי הטופס הזה ייחשב בטעות לתיקון של ההזמנה הישנה.
+  await setLastOrder(phone, { editing: false });
   await openGreetingForm(phoneNumberId, phone, greeting, { bodyText: M.FORM_INVITE });
 }
 
@@ -328,7 +332,11 @@ async function handleEditOrder(phoneNumberId, phone) {
 // ─────────────────────────────────────────────────────────────
 async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields) {
   const order = await getLastOrder(phone);
-  const isCorrection = !!order?.editing;
+  // בדיקה כפולה של חלון 24 השעות (מעבר לבדיקה ב-handleEditOrder): אם הדגל
+  // editing נשאר תקוע (למשל תיקון קודם שננטש) אבל בפועל חלון התיקונים כבר
+  // עבר, מתייחסים לזה כהזמנה חדשה במקום לנסות /update ולקבל 410.
+  const withinCorrectionWindow = !!order?.createdAt && Date.now() - order.createdAt <= M.CORRECTION_WINDOW_MS;
+  const isCorrection = !!order?.editing && withinCorrectionWindow;
   console.log(`[handler] event form complete greetingId=${greetingId} correction=${isCorrection}`);
 
   if (isCorrection) {
