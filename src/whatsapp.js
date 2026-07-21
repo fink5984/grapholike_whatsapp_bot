@@ -204,9 +204,9 @@ function sendCategoryList(phoneNumberId, to, bodyText, categories) {
 function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings, bodyText) {
   const cards = greetings
     .slice(0, 10)
+    .filter((g) => /^https?:\/\//i.test(String(g.image || g.image_url || g.thumbnail || '').trim()))
     .map((g, index) => {
       const imageLink = String(g.image || g.image_url || g.thumbnail || '').trim();
-      if (!/^https?:\/\//i.test(imageLink)) return null;
       const encodedImageLink = encodeURI(imageLink);
 
       return {
@@ -231,8 +231,7 @@ function sendGreetingCarousel(phoneNumberId, to, categoryTitle, greetings, bodyT
           ],
         },
       };
-    })
-    .filter(Boolean);
+    });
 
   if (cards.length === 0) {
     throw new Error('No valid image cards for carousel');
