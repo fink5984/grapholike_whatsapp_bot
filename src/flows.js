@@ -45,7 +45,10 @@ function helperTextForField(field) {
 //                          empty init_values object failed to open the flow.
 //     greeting_edit_<id> — correction (step 13), Form init-values bound to
 //                          ${data.init_values}; always gets real values.
-const FLOW_NAME_VERSION = 'v8';
+// v9: all TextInput fields are optional (required: false) — customers can
+//     submit/update the form with any field left blank; blank fields are
+//     sent through as empty strings.
+const FLOW_NAME_VERSION = 'v9';
 
 const db = require('./db');
 
@@ -145,7 +148,7 @@ function buildGreetingFlowJson(greeting, { withPrefill = false } = {}) {
       name: field.param,
       'input-type': field.param === 'phone' ? 'phone' : 'text',
       'helper-text': helperTextForField(field),
-      required: true,
+      required: false,
     }));
 
     // Pass each form input value back to the bot via ${form.<name>} data-binding.
