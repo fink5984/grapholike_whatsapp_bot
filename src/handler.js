@@ -362,6 +362,11 @@ async function handleEventFormComplete(phoneNumberId, phone, greetingId, fields)
 // ─────────────────────────────────────────────────────────────
 
 async function startPaymentStep(phoneNumberId, phone, greetingId, fields) {
+  if (String(process.env.PAYMENT_ENABLED || 'true').trim().toLowerCase() === 'false') {
+    console.log('[handler] PAYMENT_ENABLED=false — skipping payment step');
+    return false;
+  }
+
   const baseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
   if (!baseUrl || !process.env.NEDARIM_MOSAD_ID || !process.env.NEDARIM_API_VALID) {
     console.warn('[handler] payment env not configured (PUBLIC_BASE_URL / NEDARIM_*) — skipping payment step');
