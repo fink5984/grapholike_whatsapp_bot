@@ -521,7 +521,11 @@ async function generateAndSend(phoneNumberId, phone, greetingId, fields, { corre
     // היסטוריית הזמנות (DB) — שורה לכל יצירה/תיקון שהושלמו
     await recordOrder(phone, { orderId: newOrderId, greetingId, fields, correction });
 
-    if (!correction) {
+    // הצעת תיקון: תמיד ביצירה ראשונה, ואחרי תיקון — רק אם עדיין בתוך חלון
+    // 24 השעות המקורי (order.createdAt לא משתנה בתיקון), כדי לאפשר כמה
+    // תיקונים רצופים ולא רק אחד.
+    const stillWithinWindow = correction && !!order?.createdAt && Date.now() - order.createdAt <= M.CORRECTION_WINDOW_MS;
+    if (!correction || stillWithinWindow) {
       // עיכוב קצר לפני הודעת התיקונים — התמונה כבר נשלחה ל-WhatsApp, אבל
       // מדיה לוקחת להם יותר זמן להגיע בפועל למכשיר מהודעת טקסט; בלי זה
       // הודעת הטקסט עלולה להציג ללקוח לפני התמונה עצמה.
